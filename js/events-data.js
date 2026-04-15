@@ -21,9 +21,9 @@ window.AI_UNPLUGGED_EVENTS = [
     capacity: 40,
     entry: 'Application',
     duration: '2 hours',
-    tagline: 'Open conversations, real builder questions, and direct AI ecosystem access.',
+    tagline: 'An AI Open Hours session with the House of Starts and eChai ecosystem in Ahmedabad.',
     description: [
-      'AI Open Hours is a tighter, more conversational format for builders who want direct access to people actually working with AI. No stage-heavy programming, no passive attendance, and no filler.',
+      'AI Open Hours is a tighter, more conversational format for builders who want direct access to people actually working with AI. This Ahmedabad edition sits inside the House of Starts and eChai ecosystem, with the room designed for practical conversations over passive attendance.',
       'Expect open discussion, practical demos, sharp questions, and a room built for people who are actively building, exploring, or trying to get unstuck on what to do next with AI.'
     ],
     agenda: [
