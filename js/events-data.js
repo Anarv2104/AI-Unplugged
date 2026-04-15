@@ -11,31 +11,32 @@
  */
 window.AI_UNPLUGGED_EVENTS = [
   {
-    id: 'builders-night-ahmedabad-may-2026',
-    title: 'Builders Night Ahmedabad',
+    id: 'ai-open-hours-house-of-starts-ahmedabad-april-2026',
+    title: 'AI Open Hours at House of Starts Ahmedabad Edition',
     type: 'Flagship',
-    format: 'Builders Night',
-    date: '2026-05-18',
-    dateDisplay: 'May 18, 2026',
-    location: 'House of Starts, Ahmedabad',
+    format: 'AI Open Hours',
+    date: '2026-04-17',
+    dateDisplay: 'April 17, 2026',
+    location: '1st Floor, D Block, Satyam Corporate Square, Sindhu Bhavan Rd, behind Rajpath Rangoli Road, opp. Iconic 1010 Hospital, Bodakdev, Ahmedabad, Gujarat 380054',
     capacity: 40,
     entry: 'Application',
     duration: '2 hours',
-    tagline: 'Live AI demos. Founder conversations.',
+    tagline: 'Open conversations, real builder questions, and direct AI ecosystem access.',
     description: [
-      'A room built for people who are done watching from the sidelines. Live AI demos from builders shipping right now, paired with sharp, short founder conversations — no panels, no fluff.',
-      'This is the flagship format. Social energy meets builder substance. You walk in curious. You walk out connected to people who actually ship.'
+      'AI Open Hours is a tighter, more conversational format for builders who want direct access to people actually working with AI. No stage-heavy programming, no passive attendance, and no filler.',
+      'Expect open discussion, practical demos, sharp questions, and a room built for people who are actively building, exploring, or trying to get unstuck on what to do next with AI.'
     ],
     agenda: [
-      { time: '6:00 PM', item: 'Doors open, intros' },
-      { time: '6:30 PM', item: 'Live demo block — 4 builders, 5 min each' },
-      { time: '7:10 PM', item: 'Founder fireside' },
-      { time: '7:40 PM', item: 'Open floor + networking' },
+      { time: '5:30 PM', item: 'Doors open, intros' },
+      { time: '6:00 PM', item: 'Open hours kickoff and context' },
+      { time: '6:20 PM', item: 'Builder questions and live discussion' },
+      { time: '7:00 PM', item: 'Short demos and practical walkthroughs' },
+      { time: '7:30 PM', item: 'Open networking' },
       { time: '8:30 PM', item: 'Wrap' }
     ],
     speakers: [
-      { name: 'To be announced', role: 'AI founder, Ahmedabad' },
-      { name: 'To be announced', role: 'Operator, early-stage SaaS' }
+      { name: 'To be announced', role: 'AI builder, Ahmedabad' },
+      { name: 'To be announced', role: 'Founder or operator from the ecosystem' }
     ],
     status: 'upcoming'
   },
@@ -66,7 +67,7 @@ window.AI_UNPLUGGED_EVENTS = [
     speakers: [
       { name: 'Mentor lineup', role: 'Announced to accepted builders' }
     ],
-    status: 'upcoming'
+    status: 'past'
   },
   {
     id: 'demo-day-ahmedabad-july-2026',
@@ -91,7 +92,7 @@ window.AI_UNPLUGGED_EVENTS = [
       { time: '8:00 PM', item: 'Wrap' }
     ],
     speakers: [],
-    status: 'upcoming'
+    status: 'past'
   },
   {
     id: 'talent-founder-exchange-bangalore-august-2026',
@@ -116,7 +117,7 @@ window.AI_UNPLUGGED_EVENTS = [
       { time: '7:00 PM', item: 'Wrap' }
     ],
     speakers: [],
-    status: 'upcoming'
+    status: 'past'
   },
   {
     id: 'builders-night-ahmedabad-march-2026',
