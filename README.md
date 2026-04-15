@@ -52,7 +52,7 @@ AI Unplugged/
 From the project folder:
 
 ```bash
-cd "/Users/anarvvasavada/Downloads/HoST/AI Unplugged"
+cd "path/to/file"
 node server.js
 ```
 
@@ -67,14 +67,14 @@ http://localhost:8000
 Start the server:
 
 ```bash
-cd "/Users/anarvvasavada/Downloads/HoST/AI Unplugged"
+cd "path/to/file"
 node server.js
 ```
 
 Start on a different port:
 
 ```bash
-cd "/Users/anarvvasavada/Downloads/HoST/AI Unplugged"
+cd "path/to/file"
 PORT=3000 node server.js
 ```
 
@@ -104,7 +104,7 @@ This means submissions are stored on the server side of your local setup, not sh
 When the server is running, submissions are saved here:
 
 ```text
-/Users/anarvvasavada/Downloads/HoST/AI Unplugged/data/submissions.csv
+path/to/folder/data/submissions.csv
 ```
 
 ## Main Files You’ll Edit
