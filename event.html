@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Event — AI Unplugged</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=DM+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+
+<nav>
+  <a href="index.html" class="nav-logo">
+    <span class="nav-logo-ai">ai</span>
+    <span class="nav-logo-unplugged">unplugged</span>
+  </a>
+  <div class="nav-links">
+    <a href="events.html" data-nav="events.html">Events</a>
+    <a href="index.html#value" data-nav="index.html">Why Join</a>
+    <a href="node-lead.html" data-nav="node-lead.html">Node Lead</a>
+    <a href="apply.html" class="nav-cta" data-nav="apply.html">Apply Now</a>
+  </div>
+</nav>
+
+<article data-event-detail>
+  <header class="event-detail-hero">
+    <p class="type-badge" data-type>Flagship</p>
+    <h1 data-title>Event Title</h1>
+    <div class="event-meta-row">
+      <span data-date>Date</span>
+      <span data-location>Location</span>
+      <span data-duration-inline>Duration</span>
+    </div>
+  </header>
+
+  <div class="event-detail-body">
+    <div class="event-body-grid">
+      <div class="event-body-content">
+        <h2>About this event</h2>
+        <div data-description></div>
+
+        <div data-agenda-block>
+          <h2>Agenda</h2>
+          <div data-agenda></div>
+        </div>
+
+        <div data-speakers-block>
+          <h2>Who's in the room</h2>
+          <div data-speakers></div>
+        </div>
+      </div>
+
+      <aside class="event-side-card">
+        <div class="detail-row">
+          <span class="label">Format</span>
+          <span class="val" data-format></span>
+        </div>
+        <div class="detail-row">
+          <span class="label">Capacity</span>
+          <span class="val" data-capacity></span>
+        </div>
+        <div class="detail-row">
+          <span class="label">Entry</span>
+          <span class="val" data-entry></span>
+        </div>
+        <div class="detail-row">
+          <span class="label">Duration</span>
+          <span class="val" data-duration></span>
+        </div>
+
+        <a href="apply.html" class="btn-primary" data-apply-btn>Apply to Attend <span class="btn-arrow">&rarr;</span></a>
+        <span class="ended" data-ended-btn style="display: none;">This event has ended</span>
+      </aside>
+    </div>
+  </div>
+</article>
+
+<div data-event-notfound style="display: none;">
+  <header class="page-header">
+    <p class="section-label">404</p>
+    <h1>Event not found</h1>
+    <p class="page-sub">We couldn't find that event. It might have been renamed or removed.</p>
+    <div style="margin-top: 28px;">
+      <a href="events.html" class="btn-primary">See all events <span class="btn-arrow">&rarr;</span></a>
+    </div>
+  </header>
+</div>
+
+<div class="ecosystem-bar">
+  <span class="ecosystem-text">Part of the ecosystem</span>
+  <span class="eco-sep"></span>
+  <a href="https://houseofstarts.com" target="_blank" rel="noopener" class="eco-name">House of Starts</a>
+  <span class="eco-sep"></span>
+  <a href="https://echai.ventures" target="_blank" rel="noopener" class="eco-name">eChai Ventures</a>
+</div>
+
+<footer>
+  <div class="footer-left">&copy; <span data-footer-year>2026</span> AI Unplugged. Built for builders.</div>
+  <div class="footer-links">
+    <a href="events.html">Events</a>
+    <a href="apply.html">Apply</a>
+    <a href="node-lead.html">Node Lead</a>
+    <a href="about.html">About</a>
+    <a href="https://twitter.com/" target="_blank" rel="noopener">Twitter</a>
+    <a href="https://linkedin.com/" target="_blank" rel="noopener">LinkedIn</a>
+  </div>
+</footer>
+
+<script src="js/events-data.js"></script>
+<script src="js/main.js"></script>
+<script src="js/event-detail.js"></script>
+</body>
+</html>

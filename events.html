@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Events — AI Unplugged</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=DM+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+
+<nav>
+  <a href="index.html" class="nav-logo">
+    <span class="nav-logo-ai">ai</span>
+    <span class="nav-logo-unplugged">unplugged</span>
+  </a>
+  <div class="nav-links">
+    <a href="events.html" data-nav="events.html">Events</a>
+    <a href="index.html#value" data-nav="index.html">Why Join</a>
+    <a href="node-lead.html" data-nav="node-lead.html">Node Lead</a>
+    <a href="apply.html" class="nav-cta" data-nav="apply.html">Apply Now</a>
+  </div>
+</nav>
+
+<header class="page-header">
+  <p class="section-label">Events</p>
+  <h1>Every room<br><span class="italic">we're opening.</span></h1>
+  <p class="page-sub">Flagship nights. Build rooms. Demo days. Talent exchanges. Filter by format. Click any event to apply.</p>
+</header>
+
+<section>
+  <div class="section-wrap" style="padding-top: 0;">
+    <div class="filter-pills">
+      <button class="filter-pill is-active" data-filter-pill="all">All</button>
+      <button class="filter-pill" data-filter-pill="Flagship">Flagship</button>
+      <button class="filter-pill" data-filter-pill="Execution">Execution</button>
+      <button class="filter-pill" data-filter-pill="Showcase">Showcase</button>
+      <button class="filter-pill" data-filter-pill="Opportunity">Opportunity</button>
+    </div>
+
+    <div class="events-grid-light" data-events-grid></div>
+    <div class="empty-state" data-events-empty style="display: none; margin-top: 24px;">
+      No events match this filter yet. Check back soon or <a href="apply.html" style="color: var(--black); text-decoration: underline;">apply to the next one</a>.
+    </div>
+  </div>
+</section>
+
+<div class="ecosystem-bar">
+  <span class="ecosystem-text">Part of the ecosystem</span>
+  <span class="eco-sep"></span>
+  <a href="https://houseofstarts.com" target="_blank" rel="noopener" class="eco-name">House of Starts</a>
+  <span class="eco-sep"></span>
+  <a href="https://echai.ventures" target="_blank" rel="noopener" class="eco-name">eChai Ventures</a>
+</div>
+
+<footer>
+  <div class="footer-left">&copy; <span data-footer-year>2026</span> AI Unplugged. Built for builders.</div>
+  <div class="footer-links">
+    <a href="events.html">Events</a>
+    <a href="apply.html">Apply</a>
+    <a href="node-lead.html">Node Lead</a>
+    <a href="about.html">About</a>
+    <a href="https://twitter.com/" target="_blank" rel="noopener">Twitter</a>
+    <a href="https://linkedin.com/" target="_blank" rel="noopener">LinkedIn</a>
+  </div>
+</footer>
+
+<script src="js/events-data.js"></script>
+<script src="js/main.js"></script>
+<script src="js/events.js"></script>
+<script>
+  // Deep-link support: events.html?type=Flagship pre-activates that filter.
+  (function () {
+    document.addEventListener('DOMContentLoaded', function () {
+      var params = new URLSearchParams(window.location.search);
+      var type = params.get('type');
+      if (!type) return;
+      var pill = document.querySelector('[data-filter-pill="' + type + '"]');
+      if (pill) pill.click();
+    });
+  })();
+</script>
+</body>
+</html>

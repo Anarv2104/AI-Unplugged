@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Application received — AI Unplugged</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=DM+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+
+<nav>
+  <a href="index.html" class="nav-logo">
+    <span class="nav-logo-ai">ai</span>
+    <span class="nav-logo-unplugged">unplugged</span>
+  </a>
+  <div class="nav-links">
+    <a href="events.html" data-nav="events.html">Events</a>
+    <a href="index.html#value" data-nav="index.html">Why Join</a>
+    <a href="node-lead.html" data-nav="node-lead.html">Node Lead</a>
+    <a href="apply.html" class="nav-cta" data-nav="apply.html">Apply Now</a>
+  </div>
+</nav>
+
+<main class="thanks-wrap">
+  <p class="section-label" data-thanks-label>Application received</p>
+  <h1>Your application<br><span class="italic" data-thanks-title>is in.</span></h1>
+  <p data-thanks-body>We'll review it and reach out by email within a few days. In the meantime, keep building — the best way to prep for any event is to ship something between now and then.</p>
+  <div class="thanks-actions">
+    <a href="events.html" class="btn-primary">See all events <span class="btn-arrow">&rarr;</span></a>
+    <a href="index.html" class="btn-secondary">Back home</a>
+  </div>
+</main>
+
+<div class="ecosystem-bar">
+  <span class="ecosystem-text">Part of the ecosystem</span>
+  <span class="eco-sep"></span>
+  <a href="https://houseofstarts.com" target="_blank" rel="noopener" class="eco-name">House of Starts</a>
+  <span class="eco-sep"></span>
+  <a href="https://echai.ventures" target="_blank" rel="noopener" class="eco-name">eChai Ventures</a>
+</div>
+
+<footer>
+  <div class="footer-left">&copy; <span data-footer-year>2026</span> AI Unplugged. Built for builders.</div>
+  <div class="footer-links">
+    <a href="events.html">Events</a>
+    <a href="apply.html">Apply</a>
+    <a href="node-lead.html">Node Lead</a>
+    <a href="about.html">About</a>
+    <a href="https://twitter.com/" target="_blank" rel="noopener">Twitter</a>
+    <a href="https://linkedin.com/" target="_blank" rel="noopener">LinkedIn</a>
+  </div>
+</footer>
+
+<script src="js/main.js"></script>
+<script>
+  (function () {
+    document.addEventListener('DOMContentLoaded', function () {
+      var params = new URLSearchParams(window.location.search);
+      var formType = params.get('form');
+      var label = document.querySelector('[data-thanks-label]');
+      var title = document.querySelector('[data-thanks-title]');
+      var body = document.querySelector('[data-thanks-body]');
+      if (formType === 'node-lead') {
+        if (label) label.textContent = 'Node Lead application received';
+        if (title) title.textContent = 'is in.';
+        if (body) body.textContent = "We review Node Lead applications slowly and in batches — expect to hear back within 1–2 weeks. If there's a fit, we'll set up a short call.";
+      } else if (formType === 'attend') {
+        if (label) label.textContent = 'Event application received';
+        if (title) title.textContent = 'is in.';
+        if (body) body.textContent = "We'll review and reply by email within 3–5 days. Seats are limited — if it's a fit, we'll send confirmation and details.";
+      }
+
+    });
+  })();
+</script>
+</body>
+</html>

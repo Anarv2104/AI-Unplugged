@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Apply — AI Unplugged</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=DM+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+
+<nav>
+  <a href="index.html" class="nav-logo">
+    <span class="nav-logo-ai">ai</span>
+    <span class="nav-logo-unplugged">unplugged</span>
+  </a>
+  <div class="nav-links">
+    <a href="events.html" data-nav="events.html">Events</a>
+    <a href="index.html#value" data-nav="index.html">Why Join</a>
+    <a href="node-lead.html" data-nav="node-lead.html">Node Lead</a>
+    <a href="apply.html" class="nav-cta" data-nav="apply.html">Apply Now</a>
+  </div>
+</nav>
+
+<header class="page-header">
+  <p class="section-label">Apply to Attend</p>
+  <h1>Tell us who<br><span class="italic">you are.</span></h1>
+  <p class="page-sub">Applications are reviewed by the team. We look for builders — people shipping, not just watching. Takes about 3 minutes.</p>
+</header>
+
+<div class="form-layout">
+  <aside class="form-aside">
+    <h3>What we look for</h3>
+    <p>We don't read resumes. We read what you're building and why.</p>
+    <ul>
+      <li>You're shipping something — even rough, even broken.</li>
+      <li>You can be specific about why this event, not just "to network."</li>
+      <li>You'll show up. Seats are limited and waitlists are real.</li>
+    </ul>
+  </aside>
+
+  <div>
+    <div class="context-pin" data-event-context>
+      <div>
+        <span class="pin-label">Applying for</span>
+        <span class="pin-title" data-pin-title>Event title</span>
+        <div style="font-size: 0.8rem; color: var(--gray-2); margin-top: 4px;" data-pin-meta></div>
+      </div>
+      <a href="apply.html" class="pin-clear">Change event</a>
+    </div>
+
+    <form class="form-card" data-form="attend" novalidate>
+      <div class="form-field field-inline-2">
+        <div>
+          <label class="form-label" for="a-name">Full name</label>
+          <input class="form-input" type="text" id="a-name" name="name" required>
+          <div class="form-error">Please enter your name.</div>
+        </div>
+        <div>
+          <label class="form-label" for="a-email">Email</label>
+          <input class="form-input" type="email" id="a-email" name="email" required>
+          <div class="form-error">Please enter a valid email.</div>
+        </div>
+      </div>
+
+      <div class="form-field field-inline-2">
+        <div>
+          <label class="form-label" for="a-role">Role</label>
+          <select class="form-select" id="a-role" name="role" required>
+            <option value="">Select role</option>
+            <option>Student</option>
+            <option>Builder</option>
+            <option>Founder</option>
+            <option>Operator</option>
+            <option>Other</option>
+          </select>
+          <div class="form-error">Please select a role.</div>
+        </div>
+        <div>
+          <label class="form-label" for="a-org">Organization / College</label>
+          <input class="form-input" type="text" id="a-org" name="organization" required>
+          <div class="form-error">Where are you from?</div>
+        </div>
+      </div>
+
+      <div class="form-field" data-event-select-wrapper>
+        <label class="form-label" for="a-event">Which event?</label>
+        <select class="form-select" id="a-event" name="event" data-event-select data-event-input required>
+          <option value="">Select an upcoming event</option>
+        </select>
+        <div class="form-error">Please pick an event.</div>
+      </div>
+
+      <div class="form-field">
+        <label class="form-label" for="a-building">What are you building right now? <span class="hint">20–500 characters</span></label>
+        <textarea class="form-textarea" id="a-building" name="building" required data-minlength="20" maxlength="500" placeholder="Short and honest. Rough projects count."></textarea>
+        <div class="form-error">Tell us briefly what you're working on.</div>
+      </div>
+
+      <div class="form-field">
+        <label class="form-label" for="a-why">Why this event?</label>
+        <textarea class="form-textarea" id="a-why" name="whyEvent" required data-minlength="15" placeholder="Be specific. 'To network' isn't a reason."></textarea>
+        <div class="form-error">Please share a specific reason.</div>
+      </div>
+
+      <div class="form-field">
+        <label class="form-label" for="a-social">LinkedIn / Twitter / Website <span class="hint">optional</span></label>
+        <input class="form-input" type="text" id="a-social" name="social" placeholder="https://">
+      </div>
+
+      <div class="form-submit-row">
+        <button type="submit" class="btn-primary">Submit Application <span class="btn-arrow">&rarr;</span></button>
+        <span class="submit-note">We reply within 3–5 days.</span>
+      </div>
+    </form>
+  </div>
+</div>
+
+<div class="ecosystem-bar">
+  <span class="ecosystem-text">Part of the ecosystem</span>
+  <span class="eco-sep"></span>
+  <a href="https://houseofstarts.com" target="_blank" rel="noopener" class="eco-name">House of Starts</a>
+  <span class="eco-sep"></span>
+  <a href="https://echai.ventures" target="_blank" rel="noopener" class="eco-name">eChai Ventures</a>
+</div>
+
+<footer>
+  <div class="footer-left">&copy; <span data-footer-year>2026</span> AI Unplugged. Built for builders.</div>
+  <div class="footer-links">
+    <a href="events.html">Events</a>
+    <a href="apply.html">Apply</a>
+    <a href="node-lead.html">Node Lead</a>
+    <a href="about.html">About</a>
+    <a href="https://twitter.com/" target="_blank" rel="noopener">Twitter</a>
+    <a href="https://linkedin.com/" target="_blank" rel="noopener">LinkedIn</a>
+  </div>
+</footer>
+
+<script src="js/events-data.js"></script>
+<script src="js/main.js"></script>
+<script src="js/forms.js"></script>
+</body>
+</html>
