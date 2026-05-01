@@ -1,0 +1,60 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isAdmin() {
+      return request.auth != null && request.auth.token.admin == true;
+    }
+
+    function isOwner(uid) {
+      return request.auth != null && request.auth.uid == uid;
+    }
+
+    match /users/{userId} {
+      allow read: if isOwner(userId) || isAdmin();
+      allow create: if isOwner(userId);
+      allow update: if isOwner(userId) || isAdmin();
+      allow delete: if isAdmin();
+    }
+
+    match /events/{eventId} {
+      allow read: if resource.data.publishState == "published" || isAdmin();
+      allow write: if isAdmin();
+    }
+
+    match /eventForms/{formId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    match /eventRegistrations/{registrationId} {
+      allow read, write: if isAdmin();
+    }
+
+    match /nodeLeadApplications/{applicationId} {
+      allow read, write: if isAdmin();
+    }
+
+    match /updates/{updateId} {
+      allow read: if resource.data.publishState == "published" || isAdmin();
+      allow write: if isAdmin();
+    }
+
+    match /comments/{commentId} {
+      allow read: if resource.data.status == "approved" || isAdmin();
+      allow write: if isAdmin();
+    }
+
+    match /newsletterSubscribers/{subscriberId} {
+      allow read, write: if isAdmin();
+    }
+
+    match /newsletterCampaigns/{campaignId} {
+      allow read, write: if isAdmin();
+    }
+  }
+}

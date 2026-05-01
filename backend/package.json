@@ -1,0 +1,8 @@
+{
+  "name": "ai-unplugged-backend",
+  "private": true,
+  "scripts": {
+    "start": "node server.js",
+    "functions:install": "npm --prefix functions install"
+  }
+}

@@ -1,2 +1,11 @@
 data/submissions.csv
 .DS_Store
+node_modules
+dist
+.env
+.env.*
+!.env.example
+functions/node_modules
+functions/.env
+functions/.env.*
+backend/serviceAccount.json

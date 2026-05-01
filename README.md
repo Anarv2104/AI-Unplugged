@@ -1,157 +1,127 @@
 # AI Unplugged
 
-Static multi-page site for AI Unplugged with a small local Node server for form handling.
+The repo is split into a dedicated frontend and backend:
 
-## What This Project Includes
+- [frontend](./frontend): React + Vite app
+- [backend](./backend): Node server, Firebase config, Firestore rules, local platform API, and future deploy helpers
 
-- Multi-page static site: `index.html`, `events.html`, `event.html`, `apply.html`, `node-lead.html`, `about.html`, `thank-you.html`
-- Shared styling in `css/styles.css`
-- Shared frontend scripts in `js/`
-- Mock event source in `js/events-data.js`
-- Local form submission endpoint in `server.js`
-- Server-side CSV logging in `data/submissions.csv`
+Additional setup guides:
 
-## Requirements
+- [frontend/README.md](./frontend/README.md)
+- [backend/README.md](./backend/README.md)
 
-- Node.js installed
-
-Check your version:
-
-```bash
-node -v
-```
-
-## Project Structure
+## Structure
 
 ```text
 AI Unplugged/
-├── index.html
-├── events.html
-├── event.html
-├── apply.html
-├── node-lead.html
-├── about.html
-├── thank-you.html
-├── server.js
-├── css/
-│   └── styles.css
-├── js/
-│   ├── main.js
-│   ├── events-data.js
-│   ├── events.js
-│   ├── event-detail.js
-│   └── forms.js
-└── data/
-    └── submissions.csv
+├── frontend/
+│   ├── src/
+│   ├── css/
+│   ├── package.json
+│   └── vite.config.mjs
+├── backend/
+│   ├── functions/
+│   ├── data/
+│   ├── server.js
+│   ├── package.json
+│   ├── firebase.json
+│   └── firestore.rules
+└── README.md
 ```
 
-`data/submissions.csv` is created automatically the first time the server starts.
-
-## How To Run
-
-From the project folder:
+## Frontend
 
 ```bash
-cd "path/to/file"
-node server.js
+cd frontend
+npm install
+npm run dev
 ```
 
-Then open:
+Frontend env vars live in:
 
 ```text
-http://localhost:8000
+frontend/.env
 ```
 
-## Exact Commands
+Use `frontend/.env.example` as the template for Firebase client config.
 
-Start the server:
+You will get these values from:
+
+Firebase Console -> Project Settings -> General -> Your apps -> Web app
+
+## Backend
 
 ```bash
-cd "path/to/file"
-node server.js
+cd backend
+npm run start
 ```
 
-Start on a different port:
-
-```bash
-cd "path/to/file"
-PORT=3000 node server.js
-```
-
-Open the site in browser after changing the port:
+For local free testing, the backend reads its own `.env`:
 
 ```text
-http://localhost:3000
+backend/.env
 ```
 
-Stop the server:
+Use `backend/.env.example` as the template.
+
+The backend also expects a Firebase service account JSON in `backend/`, referenced by `FIREBASE_SERVICE_ACCOUNT_PATH`.
+
+Install the bundled Firebase/XLSX dependencies with:
 
 ```bash
-Ctrl + C
+cd backend
+npm run functions:install
 ```
 
-## How Form Submissions Work
+The old Functions directory is still present for a future deploy path, but it is not required for local testing.
 
-- User submits either the attend form or the Node Lead form
-- Frontend sends the form payload to `POST /api/submissions`
-- `server.js` appends that data to `data/submissions.csv`
-- User is redirected to `thank-you.html`
-
-This means submissions are stored on the server side of your local setup, not shown to the user in the UI.
-
-## CSV Output Location
-
-When the server is running, submissions are saved here:
+Backend env values should not be committed. Use:
 
 ```text
-path/to/folder/data/submissions.csv
+backend/.env.example
 ```
 
-## Main Files You’ll Edit
+Required backend values:
 
-- `js/events-data.js`
-  Edit event cards, event detail content, dates, formats, and slugs.
+- `FIREBASE_SERVICE_ACCOUNT_PATH`
+- `BREVO_API_KEY`
+- `BREVO_SENDER_EMAIL`
+- `BREVO_SENDER_NAME`
+- `BOOTSTRAP_ADMIN_EMAILS`
 
-- `index.html`
-  Landing page content and CTA structure.
+## Production Build
 
-- `apply.html`
-  Attend form fields and copy.
-
-- `node-lead.html`
-  Node Lead form fields and copy.
-
-- `about.html`
-  About page copy.
-
-- `css/styles.css`
-  Shared design system and all page styling.
-
-## Notes
-
-- This project has no build step.
-- Do not open the HTML files directly if you want form submission to work.
-- Use `node server.js`, not `python3 -m http.server`, because the forms need the POST endpoint in `server.js`.
-
-## Quick Test Flow
-
-1. Start the server with `node server.js`
-2. Open `http://localhost:8000`
-3. Go to `Apply Now` or `Node Lead`
-4. Submit a form
-5. Check `data/submissions.csv`
-
-## Troubleshooting
-
-If port `8000` is busy:
+Build the frontend first:
 
 ```bash
-PORT=3001 node server.js
+cd frontend
+npm run build
 ```
 
-If the forms do not submit:
+Then serve it from the backend:
 
-- Make sure you started the site with `node server.js`
-- Make sure you are visiting `http://localhost:8000` or the custom port you chose
-- Check that `data/submissions.csv` exists
+```bash
+cd ../backend
+npm run start
+```
 
+The backend server now serves:
+
+```text
+../frontend/dist
+```
+
+If that build output does not exist yet, the backend returns a clear build-required message.
+
+## Platform Ready Checklist
+
+1. Fill in `frontend/.env`
+2. Enable Firebase Email/Password auth
+3. Enable Firebase Google auth
+4. Add `localhost` and production domains to Firebase Authorized Domains
+5. Create `backend/.env`
+6. Add a Firebase service account JSON to `backend/`
+7. Add Brevo and bootstrap-admin values to `backend/.env`
+8. Build `frontend`
+9. Install `backend/functions` dependencies
+10. Start the backend locally
