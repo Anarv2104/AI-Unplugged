@@ -1,8 +1,10 @@
-import { useEffect, useState } from 'react';
+import { lazy, Suspense, useEffect, useState } from 'react';
 import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { getEventStatus } from '../lib/events';
 import { getEventById } from '../lib/platform';
 import { useAuth } from '../context/useAuth';
+
+const EventMap = lazy(() => import('../components/EventMap'));
 
 export default function EventDetailPage() {
   const [searchParams] = useSearchParams();
@@ -30,7 +32,7 @@ export default function EventDetailPage() {
         <header className="page-header">
           <p className="section-label">404</p>
           <h1>Event not found</h1>
-          <p className="page-sub">We couldn&apos;t find that event. It might have been renamed or removed.</p>
+          <p className="page-sub">That event either does not exist yet or has not been published.</p>
           <div style={{ marginTop: 28 }}>
             <Link to="/events" className="btn-primary">
               See all events <span className="btn-arrow">&rarr;</span>
@@ -43,10 +45,10 @@ export default function EventDetailPage() {
 
   function openRegistrationGate() {
     if (isAuthenticated) {
-      navigate(`/apply?event=${encodeURIComponent(event.id)}`);
+      navigate(`/attend?event=${encodeURIComponent(event.id)}`);
       return;
     }
-    navigate('/signup', { state: { backgroundLocation: location, nextPath: '/events' } });
+    navigate('/signup', { state: { backgroundLocation: location, nextPath: `/attend?event=${encodeURIComponent(event.id)}` } });
   }
 
   const eventStatus = getEventStatus(event || {});
@@ -58,15 +60,15 @@ export default function EventDetailPage() {
         <h1>{event.title}</h1>
         <div className="event-meta-row">
           <span>{event.dateDisplay}</span>
-          <span>{event.location}</span>
-          <span>{event.duration}</span>
+          {event.location ? <span>{event.location}</span> : null}
+          {event.duration ? <span>{event.duration}</span> : null}
         </div>
       </header>
 
       <div className="event-detail-body">
         <div className="event-body-grid">
           <div className="event-body-content">
-            <h2>About this event</h2>
+            <h2>About the room</h2>
             {(event.description || []).map((paragraph) => <p key={paragraph}>{paragraph}</p>)}
 
             {event.agenda?.length ? (
@@ -85,7 +87,7 @@ export default function EventDetailPage() {
 
             {event.speakers?.length ? (
               <div>
-                <h2>Who&apos;s in the room</h2>
+                <h2>Speakers</h2>
                 <div>
                   {event.speakers.map((speaker) => (
                     <div className="speaker-row" key={`${speaker.name}-${speaker.role}`}>
@@ -94,6 +96,20 @@ export default function EventDetailPage() {
                     </div>
                   ))}
                 </div>
+              </div>
+            ) : null}
+
+            {event.mapEnabled ? (
+              <div style={{ marginTop: 40 }}>
+                <h2>Map</h2>
+                <Suspense fallback={<div className="empty-state">Loading map...</div>}>
+                  <EventMap
+                    lat={event.mapLat}
+                    lng={event.mapLng}
+                    address={event.mapAddress}
+                    label={event.title}
+                  />
+                </Suspense>
               </div>
             ) : null}
           </div>
@@ -120,7 +136,7 @@ export default function EventDetailPage() {
               <span className="ended">This event has ended</span>
             ) : (
               <button type="button" className="btn-primary" onClick={openRegistrationGate}>
-                Register For Event <span className="btn-arrow">&rarr;</span>
+                Register for this event <span className="btn-arrow">&rarr;</span>
               </button>
             )}
           </aside>

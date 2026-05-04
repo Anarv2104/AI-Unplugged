@@ -12,10 +12,10 @@ function AuthPanel({ mode }) {
   const [error, setError] = useState('');
   const cardRef = useRef(null);
 
-  const title = mode === 'signup' ? 'Join the platform.' : 'Welcome back.';
+  const title = mode === 'signup' ? 'Create your account' : 'Log in';
   const subtitle = mode === 'signup'
-    ? 'Create your member account to track registrations, comment on updates, and access the platform.'
-    : 'Sign in to access comments, your profile, admin tools, and member updates.';
+    ? 'Get into the platform, join events, and start building with the rooms that matter.'
+    : 'Return to your dashboard, events, and updates.';
 
   function closeModal() {
     const background = location.state?.backgroundLocation;
@@ -63,7 +63,7 @@ function AuthPanel({ mode }) {
         finishAuth(result?.destination);
       }
     } catch (nextError) {
-      setError(nextError?.message || 'Authentication failed.');
+      setError(nextError?.message || 'Something went wrong.');
     } finally {
       setPending(false);
     }
@@ -77,7 +77,7 @@ function AuthPanel({ mode }) {
       const result = await loginWithGoogle();
       finishAuth(result?.destination);
     } catch (nextError) {
-      setError(nextError?.message || 'Google sign-in failed.');
+      setError(nextError?.message || 'Something went wrong.');
     } finally {
       setPending(false);
     }
@@ -85,7 +85,7 @@ function AuthPanel({ mode }) {
 
   async function handleResetPassword() {
     if (!values.email) {
-      setError('Enter your email first so the reset link knows where to go.');
+      setError('Enter your email first so we know where to send the reset link.');
       return;
     }
 
@@ -96,7 +96,7 @@ function AuthPanel({ mode }) {
       await resetPassword(values.email);
       setMessage('Password reset email sent.');
     } catch (nextError) {
-      setError(nextError?.message || 'Could not send reset email.');
+      setError(nextError?.message || 'Something went wrong.');
     } finally {
       setPending(false);
     }
@@ -106,33 +106,33 @@ function AuthPanel({ mode }) {
     <div className="auth-overlay" onClick={closeModal}>
       <div className="auth-card-shell" onClick={(event) => event.stopPropagation()}>
         <div className="auth-card form-card" ref={cardRef} tabIndex={-1}>
-        <button type="button" className="auth-close" onClick={closeModal}>×</button>
-        <p className="section-label">{mode === 'signup' ? 'Create Account' : 'Log In'}</p>
-        <h2 className="auth-title">{title}</h2>
-        <p className="auth-sub">{subtitle}</p>
+          <button type="button" className="auth-close" onClick={closeModal}>×</button>
+          <p className="section-label">{mode === 'signup' ? 'Create account' : 'Log in'}</p>
+          <h2 className="auth-title">{title}</h2>
+          <p className="auth-sub">{subtitle}</p>
 
-        {!isFirebaseConfigured ? (
-          <div className="empty-state auth-empty">
-            Firebase is not configured yet. Add the client values to `.env` before using auth.
-          </div>
-        ) : null}
-
-        <form onSubmit={handleSubmit} className="auth-form">
-          {mode === 'signup' ? (
-            <div className="form-field">
-              <label className="form-label" htmlFor="auth-name">Name</label>
-              <input
-                className="form-input"
-                id="auth-name"
-                autoComplete="name"
-                value={values.name}
-                onChange={(event) => setValues((current) => ({ ...current, name: event.target.value }))}
-              />
+          {!isFirebaseConfigured ? (
+            <div className="empty-state auth-empty">
+              Firebase auth is not configured yet. Add the client env values first.
             </div>
           ) : null}
 
-          <div className="form-field">
-            <label className="form-label" htmlFor="auth-email">Email</label>
+          <form onSubmit={handleSubmit} className="auth-form">
+            {mode === 'signup' ? (
+              <div className="form-field">
+                <label className="form-label" htmlFor="auth-name">Name</label>
+                <input
+                  className="form-input"
+                  id="auth-name"
+                  autoComplete="name"
+                  value={values.name}
+                  onChange={(event) => setValues((current) => ({ ...current, name: event.target.value }))}
+                />
+              </div>
+            ) : null}
+
+            <div className="form-field">
+              <label className="form-label" htmlFor="auth-email">Email</label>
               <input
                 className="form-input"
                 id="auth-email"
@@ -141,10 +141,10 @@ function AuthPanel({ mode }) {
                 value={values.email}
                 onChange={(event) => setValues((current) => ({ ...current, email: event.target.value }))}
               />
-          </div>
+            </div>
 
-          <div className="form-field">
-            <label className="form-label" htmlFor="auth-password">Password</label>
+            <div className="form-field">
+              <label className="form-label" htmlFor="auth-password">Password</label>
               <input
                 className="form-input"
                 id="auth-password"
@@ -153,29 +153,29 @@ function AuthPanel({ mode }) {
                 value={values.password}
                 onChange={(event) => setValues((current) => ({ ...current, password: event.target.value }))}
               />
-          </div>
+            </div>
 
-          {error ? <div className="form-error auth-message" style={{ display: 'block' }}>{error}</div> : null}
-          {message ? <div className="auth-success">{message}</div> : null}
+            {error ? <div className="form-error auth-message" style={{ display: 'block' }}>{error}</div> : null}
+            {message ? <div className="auth-success">{message}</div> : null}
 
-          <div className="auth-actions">
-            <button type="submit" className="btn-primary" disabled={pending || !isFirebaseConfigured}>
-              {pending ? 'Please wait...' : mode === 'signup' ? 'Create Account' : 'Log In'}
+            <div className="auth-actions">
+              <button type="submit" className="btn-primary" disabled={pending || !isFirebaseConfigured}>
+                {pending ? 'Please wait...' : mode === 'signup' ? 'Create Account' : 'Log In'}
+              </button>
+              <button type="button" className="btn-secondary" disabled={pending || !isFirebaseConfigured} onClick={handleGoogle}>
+                Continue with Google
+              </button>
+            </div>
+          </form>
+
+          <div className="auth-links">
+            {mode === 'login' ? (
+              <button type="button" className="auth-link" onClick={handleResetPassword}>Forgot password?</button>
+            ) : null}
+            <button type="button" className="auth-link" onClick={() => switchMode(mode === 'signup' ? 'login' : 'signup')}>
+              {mode === 'signup' ? 'Already have an account?' : 'Need an account?'}
             </button>
-            <button type="button" className="btn-secondary" disabled={pending || !isFirebaseConfigured} onClick={handleGoogle}>
-              Continue with Google
-            </button>
           </div>
-        </form>
-
-        <div className="auth-links">
-          {mode === 'login' ? (
-            <button type="button" className="auth-link" onClick={handleResetPassword}>Forgot password?</button>
-          ) : null}
-          <button type="button" className="auth-link" onClick={() => switchMode(mode === 'signup' ? 'login' : 'signup')}>
-            {mode === 'signup' ? 'Already registered? Log in' : 'Need an account? Sign up'}
-          </button>
-        </div>
         </div>
       </div>
     </div>

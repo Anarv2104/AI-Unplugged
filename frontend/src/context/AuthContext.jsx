@@ -23,7 +23,7 @@ async function ensureUserProfile(user) {
   const payload = {
     email: user.email || '',
     displayName: user.displayName || '',
-    newsletterSubscribed: true,
+    newsletterSubscribed: snap.exists() ? snap.data().newsletterSubscribed !== false : true,
     updatedAt: serverTimestamp()
   };
 
@@ -68,6 +68,23 @@ async function finalizeUserState(nextUser) {
     claims: tokenResult.claims || {},
     setupWarnings: [...(syncState?.setupWarnings || [])],
     destination: isAdmin ? '/admin' : '/dashboard'
+  };
+}
+
+async function refreshCurrentProfileState(nextUser) {
+  if (!nextUser) {
+    return {
+      profile: null,
+      claims: {},
+      setupWarnings: []
+    };
+  }
+
+  const nextState = await finalizeUserState(nextUser);
+  return {
+    profile: nextState.profile,
+    claims: nextState.claims,
+    setupWarnings: nextState.setupWarnings
   };
 }
 
@@ -140,6 +157,15 @@ export function AuthProvider({ children }) {
     return sendPasswordResetEmail(auth, email);
   }
 
+  async function refreshProfile() {
+    if (!auth?.currentUser) return null;
+    const nextState = await refreshCurrentProfileState(auth.currentUser);
+    setClaims(nextState.claims);
+    setProfile(nextState.profile);
+    setSetupWarnings(nextState.setupWarnings);
+    return nextState;
+  }
+
   return (
     <AuthContext.Provider
       value={{
@@ -155,7 +181,8 @@ export function AuthProvider({ children }) {
         signupWithEmail,
         loginWithGoogle,
         logout,
-        resetPassword
+        resetPassword,
+        refreshProfile
       }}
     >
       {children}

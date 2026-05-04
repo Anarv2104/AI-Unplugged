@@ -12,8 +12,7 @@ export default function Nav() {
   const location = useLocation();
   const navigate = useNavigate();
   const [mobileOpen, setMobileOpen] = useState(false);
-  const { isAuthenticated, isAdmin, profile, logout } = useAuth();
-  const isHome = location.pathname === '/';
+  const { isAuthenticated, isAdmin, logout } = useAuth();
   const homeTarget = isAuthenticated ? (isAdmin ? '/admin' : '/dashboard') : '/';
 
   function openAuth(mode) {
@@ -39,11 +38,16 @@ export default function Nav() {
         </span>
         <span className="nav-logo-wordmark">UNPLUGGED</span>
       </NavLink>
-      <button type="button" className={`nav-hamburger${mobileOpen ? ' is-open' : ''}`} onClick={() => setMobileOpen((current) => !current)} aria-label="Toggle navigation">
-        <span />
-        <span />
-        <span />
+
+      <button
+        type="button"
+        className={`nav-hamburger${mobileOpen ? ' is-open' : ''}`}
+        onClick={() => setMobileOpen((current) => !current)}
+        aria-label="Toggle menu"
+      >
+        <span /><span /><span />
       </button>
+
       <div className={`nav-links${mobileOpen ? ' is-open' : ''}`}>
         <NavLink to="/events" className={(args) => navClass(args)} end>
           Events
@@ -51,32 +55,44 @@ export default function Nav() {
         <NavLink to="/updates" className={(args) => navClass(args)} end>
           Updates
         </NavLink>
-        {!isAuthenticated ? <a href="/#value" className={isHome ? 'nav-active' : ''}>Why Join</a> : null}
-        <NavLink to="/become-a-host" className={(args) => navClass(args)} end>
-          Become a Host
-        </NavLink>
-        <NavLink to="/node-lead" className={(args) => navClass(args)} end>
-          Node Lead
-        </NavLink>
+
         {isAuthenticated ? (
           <>
-            <NavLink to="/dashboard" className={(args) => navClass(args)} end>
-              Dashboard
-            </NavLink>
-            <NavLink to="/profile" className={(args) => navClass(args)} end>
-              {profile?.displayName || 'Profile'}
-            </NavLink>
+            {!isAdmin ? (
+              <>
+                <NavLink to="/dashboard" className={(args) => navClass(args)} end>
+                  Dashboard
+                </NavLink>
+                <NavLink to="/profile" className={(args) => navClass(args)} end>
+                  <span className="nav-profile-link">
+                    <span className="nav-profile-icon" aria-hidden="true">
+                      <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
+                        <circle cx="8" cy="5" r="3" stroke="currentColor" strokeWidth="1.5" />
+                        <path d="M2.5 14c0-3.038 2.462-5.5 5.5-5.5s5.5 2.462 5.5 5.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+                      </svg>
+                    </span>
+                    Profile
+                  </span>
+                </NavLink>
+              </>
+            ) : null}
             {isAdmin ? (
-              <NavLink to="/admin" className={(args) => navClass(args)} end>
+              <NavLink to="/admin" className={(args) => navClass(args, 'nav-admin-link')} end>
                 Admin
               </NavLink>
             ) : null}
-            <button type="button" className="nav-cta nav-button" onClick={handleLogout}>Logout</button>
+            <button type="button" className="nav-cta nav-button" onClick={handleLogout}>
+              Logout
+            </button>
           </>
         ) : (
           <>
-            <button type="button" className="nav-inline-button" onClick={() => openAuth('login')}>Log In</button>
-            <button type="button" className="nav-cta nav-button" onClick={() => openAuth('signup')}>Join Platform</button>
+            <button type="button" className="nav-inline-button" onClick={() => openAuth('login')}>
+              Log In
+            </button>
+            <button type="button" className="nav-cta nav-button" onClick={() => openAuth('signup')}>
+              Join
+            </button>
           </>
         )}
       </div>

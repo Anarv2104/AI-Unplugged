@@ -61,26 +61,26 @@ export default function NodeLeadPage() {
   return (
     <>
       <PageHeader
-        label="Run Your Campus Node"
-        title="Become a"
-        accent="Node Lead."
-        subtitle="Not an ambassador. Not a brand rep. You'll own AI Unplugged at your campus - pick the builders, run the events, bring the right people into the room."
+        label="Become a Node Lead"
+        title="Grow a stronger"
+        accent="local node."
+        subtitle="Help shape AI Unplugged in your city, campus, community, builder cluster, or region by gathering strong people and keeping the room quality high."
       />
 
       <section>
         <div className="section-wrap" style={{ paddingTop: 0 }}>
           <div className="pitch-grid">
             <div className="pitch-card">
-              <h3>Run real events</h3>
-              <p>Build Rooms, Builders Nights, and showcases - in your city, on your campus, with ecosystem backing and operational support from the core team.</p>
+              <h3>Build local signal</h3>
+              <p>Node Leads create better local rooms by gathering serious builders and making sure the right people keep meeting each other.</p>
             </div>
             <div className="pitch-card">
-              <h3>Direct ecosystem access</h3>
-              <p>You&apos;ll be in the core group. Founders, operators, and partner companies are introduced to you directly. No filter.</p>
+              <h3>Represent your cluster</h3>
+              <p>This can be a city, a campus, a startup pocket, a creative community, or any builder network with real energy and follow-through.</p>
             </div>
             <div className="pitch-card">
-              <h3>A track record that shows</h3>
-              <p>When you ship events that produce builders, people notice. This becomes something you point to - not a line on a resume, a reputation.</p>
+              <h3>Compound opportunity</h3>
+              <p>The best Node Leads do more than organize. They connect talent, momentum, and execution across local rooms that would otherwise stay scattered.</p>
             </div>
           </div>
         </div>
@@ -88,13 +88,13 @@ export default function NodeLeadPage() {
 
       <div className="form-layout">
         <aside className="form-aside">
-          <h3>Who we&apos;re looking for</h3>
-          <p>We&apos;re slow about picking Node Leads. Every bad fit sets back the local community by months.</p>
+          <h3>What we look for</h3>
+          <p>We want people who care about room quality and follow-through, not just event volume.</p>
           <ul>
-            <li>You&apos;ve organized something before - even informally.</li>
-            <li>You&apos;re hands-on with AI. Not just curious - actively building or using it.</li>
-            <li>You care about who&apos;s in the room more than how many are in the room.</li>
-            <li>You can commit ~6 hours a week for the first two months.</li>
+            <li>You can gather strong builders, founders, students, or operators.</li>
+            <li>You know a local room, city, campus, or community that deserves sharper signal.</li>
+            <li>You are willing to coordinate with the core team, not run a disconnected side project.</li>
+            <li>You care about consistency, trust, and the long game of building a local node.</li>
           </ul>
         </aside>
 
@@ -114,7 +114,7 @@ export default function NodeLeadPage() {
             <button type="submit" className={`btn-primary${submitting ? ' is-disabled' : ''}`} disabled={submitting || !schema}>
               {submitting ? 'Submitting...' : <>Submit Application <span className="btn-arrow">&rarr;</span></>}
             </button>
-            <span className="submit-note">Review takes 1-2 weeks.</span>
+            <span className="submit-note">We review Node Lead applications manually.</span>
           </div>
           {formMessage ? <div className="form-error" style={{ display: 'block', marginTop: 12 }}>{formMessage}</div> : null}
         </form>

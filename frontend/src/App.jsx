@@ -18,6 +18,11 @@ const ThankYouPage = lazy(() => import('./pages/ThankYouPage'));
 const UpdateDetailPage = lazy(() => import('./pages/UpdateDetailPage'));
 const UpdatesPage = lazy(() => import('./pages/UpdatesPage'));
 
+function LegacyApplyRedirect() {
+  const location = useLocation();
+  return <Navigate to={`/attend${location.search}`} replace />;
+}
+
 function ScrollManager() {
   const location = useLocation();
 
@@ -53,7 +58,8 @@ function AppRoutes() {
             <Route path="/events" element={<EventsPage />} />
             <Route path="/dashboard" element={<DashboardPage />} />
             <Route path="/event" element={<EventDetailPage />} />
-            <Route path="/apply" element={<ApplyPage />} />
+            <Route path="/attend" element={<ApplyPage />} />
+            <Route path="/apply" element={<LegacyApplyRedirect />} />
             <Route path="/become-a-host" element={<HostPage />} />
             <Route path="/node-lead" element={<NodeLeadPage />} />
             <Route path="/about" element={<AboutPage />} />
@@ -66,7 +72,7 @@ function AppRoutes() {
           <Route path="/index.html" element={<Navigate to="/" replace />} />
           <Route path="/events.html" element={<Navigate to="/events" replace />} />
           <Route path="/event.html" element={<Navigate to="/event" replace />} />
-          <Route path="/apply.html" element={<Navigate to="/apply" replace />} />
+          <Route path="/apply.html" element={<LegacyApplyRedirect />} />
           <Route path="/become-a-host.html" element={<Navigate to="/become-a-host" replace />} />
           <Route path="/node-lead.html" element={<Navigate to="/node-lead" replace />} />
           <Route path="/about.html" element={<Navigate to="/about" replace />} />

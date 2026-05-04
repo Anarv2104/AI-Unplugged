@@ -13,7 +13,8 @@ import {
   updateDoc,
   where
 } from 'firebase/firestore';
-import { auth, db, isFirebaseConfigured } from './firebase';
+import { ref, uploadBytesResumable, getDownloadURL } from 'firebase/storage';
+import { auth, db, storage, isFirebaseConfigured } from './firebase';
 import {
   COMMENT_MODES,
   defaultEventFormSchema,
@@ -89,6 +90,29 @@ export async function getAdminEvents() {
   if (!db) return fallbackEvents;
   const snap = await getDocs(collection(db, 'events'));
   return snap.docs.map(mapDoc).sort((a, b) => new Date(a.date || 0) - new Date(b.date || 0));
+}
+
+export async function getHomeSpotlightSettings() {
+  if (!db) return { featuredHomeEventIds: [] };
+  const snap = await getDoc(doc(db, 'siteSettings', 'home'));
+  if (!snap.exists()) return { featuredHomeEventIds: [] };
+  const data = snap.data() || {};
+  return {
+    featuredHomeEventIds: Array.isArray(data.featuredHomeEventIds) ? data.featuredHomeEventIds.slice(0, 2) : []
+  };
+}
+
+export async function saveHomeSpotlightSettings(featuredHomeEventIds) {
+  if (!db) throw new Error('Firebase is not configured.');
+  if (Array.isArray(featuredHomeEventIds) && featuredHomeEventIds.length > 2) {
+    throw new Error('Choose up to two events for the home spotlight.');
+  }
+  const selected = Array.isArray(featuredHomeEventIds) ? featuredHomeEventIds.slice(0, 2) : [];
+  await setDoc(doc(db, 'siteSettings', 'home'), {
+    featuredHomeEventIds: selected,
+    updatedAt: serverTimestamp()
+  }, { merge: true });
+  return { featuredHomeEventIds: selected };
 }
 
 export async function getEventById(id) {
@@ -229,7 +253,8 @@ export async function submitUpdateComment(payload) {
 export async function submitEventRegistration(payload) {
   return apiRequest('/api/platform/registrations/event', {
     method: 'POST',
-    body: payload
+    body: payload,
+    requireAuth: true
   });
 }
 
@@ -397,6 +422,45 @@ export async function getMemberDashboard() {
     method: 'GET',
     requireAuth: true
   });
+}
+
+export async function updateNewsletterPreference(subscribed) {
+  return apiRequest('/api/platform/profile/newsletter', {
+    method: 'POST',
+    body: { subscribed },
+    requireAuth: true
+  });
+}
+
+export async function geocodeAddress(address) {
+  return apiRequest('/api/platform/geocode', {
+    method: 'POST',
+    body: { address },
+    requireAuth: true
+  });
+}
+
+export async function uploadAttachment(file, draftId, onProgress) {
+  if (!storage) throw new Error('Firebase Storage is not configured.');
+  const safeName = `${Date.now()}-${file.name.replace(/[^a-z0-9._-]/gi, '_')}`;
+  const storageRef = ref(storage, `updates/${draftId || 'draft'}/attachments/${safeName}`);
+  await new Promise((resolve, reject) => {
+    const task = uploadBytesResumable(storageRef, file);
+    task.on('state_changed',
+      (snap) => onProgress?.(Math.round((snap.bytesTransferred / snap.totalBytes) * 100)),
+      reject,
+      resolve
+    );
+  });
+  const url = await getDownloadURL(storageRef);
+  return {
+    id: safeName,
+    name: file.name,
+    mimeType: file.type || 'application/octet-stream',
+    size: file.size,
+    url,
+    downloadable: true
+  };
 }
 
 export { isFirebaseConfigured };

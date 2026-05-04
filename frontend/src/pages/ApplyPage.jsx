@@ -23,7 +23,7 @@ export default function ApplyPage() {
   const [showSuccess, setShowSuccess] = useState(false);
 
   useEffect(() => {
-    document.title = 'Apply - AI Unplugged';
+    document.title = 'Attend - AI Unplugged';
     getPublishedEvents().then((items) => {
       setEvents(items);
       if (!selectedEventId && items[0]?.id) setSelectedEventId(items[0].id);
@@ -32,7 +32,7 @@ export default function ApplyPage() {
 
   useEffect(() => {
     if (!loading && !isAuthenticated) {
-      navigate('/signup', { replace: true, state: { backgroundLocation: { pathname: '/events' }, nextPath: '/events' } });
+      navigate('/signup', { replace: true, state: { backgroundLocation: { pathname: '/events' }, nextPath: '/dashboard' } });
     }
   }, [isAuthenticated, loading, navigate]);
 
@@ -73,7 +73,7 @@ export default function ApplyPage() {
   async function handleSubmit(event) {
     event.preventDefault();
     const nextErrors = validateAgainstSchema(schema?.fields || [], values);
-    if (!selectedEventId) nextErrors.event = 'Please pick an event.';
+    if (!selectedEventId) nextErrors.event = 'Pick an event first.';
     setErrors(nextErrors);
     if (Object.keys(nextErrors).length) return;
 
@@ -98,20 +98,20 @@ export default function ApplyPage() {
   return (
     <>
       <PageHeader
-        label="Apply to Attend"
-        title="Tell us who"
-        accent="you are."
-        subtitle="Applications are reviewed by the team. We look for builders - people shipping, not just watching. Takes about 3 minutes."
+        label="Attend"
+        title="Step into the"
+        accent="room."
+        subtitle="Pick the event that fits your current momentum, then send in the details needed to confirm your spot."
       />
 
       <div className="form-layout">
         <aside className="form-aside">
           <h3>What we look for</h3>
-          <p>We don&apos;t read resumes. We read what you&apos;re building and why.</p>
+          <p>We care more about fit, readiness, and room quality than volume.</p>
           <ul>
-            <li>You&apos;re shipping something - even rough, even broken.</li>
-            <li>You can be specific about why this event, not just &quot;to network.&quot;</li>
-            <li>You&apos;ll show up. Seats are limited and waitlists are real.</li>
+            <li>You are applying to the room that actually fits your stage.</li>
+            <li>You can contribute signal, execution, or a serious point of view.</li>
+            <li>You are ready to show up and participate, not just observe from the edge.</li>
           </ul>
         </aside>
 
@@ -119,13 +119,13 @@ export default function ApplyPage() {
           {selectedEvent ? (
             <div className="context-pin">
               <div>
-                <span className="pin-label">Applying for</span>
+                <span className="pin-label">Attending</span>
                 <span className="pin-title">{selectedEvent.title}</span>
                 <div style={{ fontSize: '0.8rem', color: 'var(--gray-2)', marginTop: 4 }}>
                   {selectedEvent.dateDisplay} · {selectedEvent.location}
                 </div>
               </div>
-              <Link to="/apply" className="pin-clear">Change event</Link>
+              <Link to="/attend" className="pin-clear">Change event</Link>
             </div>
           ) : null}
 
@@ -134,12 +134,12 @@ export default function ApplyPage() {
               <div className={`form-field${errors.event ? ' has-error' : ''}`}>
                 <label className="form-label" htmlFor="a-event">Which event?</label>
                 <select className="form-select" id="a-event" value={selectedEventId} onChange={(e) => setSelectedEventId(e.target.value)}>
-                  <option value="">Select an upcoming event</option>
+                  <option value="">Select an event</option>
                   {events.map((eventOption) => (
                     <option key={eventOption.id} value={eventOption.id}>{eventOption.title} - {eventOption.dateDisplay}</option>
                   ))}
                 </select>
-                <div className="form-error">{errors.event || 'Please pick an event.'}</div>
+                <div className="form-error">{errors.event || 'Pick an event first.'}</div>
               </div>
             ) : null}
 
@@ -156,9 +156,9 @@ export default function ApplyPage() {
 
             <div className="form-submit-row">
               <button type="submit" className={`btn-primary${submitting ? ' is-disabled' : ''}`} disabled={submitting || !schema}>
-                {submitting ? 'Submitting...' : <>Submit Application <span className="btn-arrow">&rarr;</span></>}
+                {submitting ? 'Submitting...' : <>Submit Attendance Request <span className="btn-arrow">&rarr;</span></>}
               </button>
-              <span className="submit-note">We reply within 3-5 days.</span>
+              <span className="submit-note">Most confirmations are reviewed within a few days.</span>
             </div>
             {formMessage ? <div className="form-error" style={{ display: 'block', marginTop: 12 }}>{formMessage}</div> : null}
           </form>

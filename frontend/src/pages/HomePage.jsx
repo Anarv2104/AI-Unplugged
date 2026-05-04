@@ -3,23 +3,29 @@ import { Link, Navigate, useLocation, useNavigate } from 'react-router-dom';
 import Ticker from '../components/Ticker';
 import { fallbackUpdates } from '../lib/defaultContent';
 import { useAuth } from '../context/useAuth';
-import { sortEventsByState } from '../lib/events';
-import { getPublishedEvents } from '../lib/platform';
+import { getHomeSpotlightSettings, getPublishedEvents } from '../lib/platform';
+import { resolveHomeSpotlightEvents } from '../lib/events';
 
 export default function HomePage() {
   const { isAuthenticated, isAdmin, loading } = useAuth();
   const location = useLocation();
   const navigate = useNavigate();
-  const [nextEvent, setNextEvent] = useState(null);
+  const [upcomingEvents, setUpcomingEvents] = useState([]);
+  const [eventsLoading, setEventsLoading] = useState(true);
   const featuredUpdates = useMemo(() => fallbackUpdates.slice(0, 2), []);
 
   useEffect(() => {
     document.title = 'AI Unplugged - The AI Ecosystem for Builders';
-    getPublishedEvents().then((items) => {
-      const upcoming = sortEventsByState(items)
-        .find((event) => event.derivedStatus === 'ongoing' || event.derivedStatus === 'upcoming') || null;
-      setNextEvent(upcoming);
-    });
+    Promise.all([
+      getPublishedEvents(),
+      getHomeSpotlightSettings().catch(() => ({ featuredHomeEventIds: [] }))
+    ])
+      .then(([items, settings]) => {
+        setUpcomingEvents(resolveHomeSpotlightEvents(items, settings.featuredHomeEventIds || []));
+      })
+      .finally(() => {
+        setEventsLoading(false);
+      });
   }, []);
 
   if (!loading && isAuthenticated) {
@@ -34,10 +40,18 @@ export default function HomePage() {
     navigate('/signup', { state: { backgroundLocation: location, nextPath: '/events' } });
   }
 
+  function openUpdatePreview(slug) {
+    if (isAuthenticated) {
+      navigate(`/updates/${slug}`);
+      return;
+    }
+    navigate('/login', { state: { backgroundLocation: location, nextPath: `/updates/${slug}` } });
+  }
+
   return (
     <>
       <section className="hero">
-        <p className="hero-label">Built inside the startup ecosystem</p>
+        <p className="hero-label">BUILT INSIDE THE STARTUP ECOSYSTEM</p>
 
         <h1>
           The AI ecosystem
@@ -47,10 +61,14 @@ export default function HomePage() {
           <span className="italic">not spectators.</span>
         </h1>
 
-        <p className="hero-sub">
-          Access founders. Build with AI. Enter a real ecosystem. Where ambitious builders meet operators,
-          ship projects, and gain leverage their peers won&apos;t have.
-        </p>
+        <div className="hero-copy">
+          <p className="hero-sub">
+            Access founders. Build with AI. Enter a real ecosystem.
+          </p>
+          <p className="hero-sub">
+            Where ambitious builders meet operators, ship projects, and gain leverage their peers won&apos;t have.
+          </p>
+        </div>
 
         <div className="hero-actions">
           <button type="button" className="btn-secondary" onClick={openGetStarted}>
@@ -66,11 +84,11 @@ export default function HomePage() {
 
       <section id="value">
         <div className="section-wrap">
-          <p className="section-label">What you get</p>
+          <p className="section-label">Why it matters</p>
           <h2 className="section-title">
-            Not a course. Not a club.
+            Rooms that change
             <br />
-            <span className="italic">Not a webinar series.</span>
+            <span className="italic">your trajectory.</span>
           </h2>
 
           <div className="value-grid">
@@ -87,12 +105,12 @@ export default function HomePage() {
             <div className="value-card">
               <div className="value-card-num">3</div>
               <h3>Ecosystem Entry</h3>
-              <p>AI Unplugged operates inside the House of Starts startup ecosystem. You&apos;re not joining a community. You&apos;re entering a network that connects to real opportunities.</p>
+              <p>AI Unplugged operates inside the House of Starts startup ecosystem. You are not joining a community. You are entering a network that connects to real opportunities.</p>
             </div>
             <div className="value-card">
               <div className="value-card-num">4</div>
               <h3>Curated Rooms</h3>
-              <p>Not every event is open. Some are invite-only. Some are application-based. The best rooms are earned, not given. That&apos;s what makes them worth being in.</p>
+              <p>Not every event is open. Some are invite-only. Some are application-based. The best rooms are earned, not given. That is what makes them worth being in.</p>
             </div>
             <div className="value-card">
               <div className="value-card-num">5</div>
@@ -102,7 +120,7 @@ export default function HomePage() {
             <div className="value-card">
               <div className="value-card-num">6</div>
               <h3>Leverage</h3>
-              <p>The people you meet, the things you build, the access you get. It compounds. Six months from now, you&apos;ll have advantages your peers won&apos;t understand.</p>
+              <p>The people you meet, the things you build, the access you get. It compounds. Six months from now, you will have advantages your peers will not understand.</p>
             </div>
           </div>
         </div>
@@ -112,16 +130,16 @@ export default function HomePage() {
         <div className="section-wrap">
           <p className="section-label">Event formats</p>
           <h2 className="section-title">
-            Events that can&apos;t be replaced
+            Different rooms,
             <br />
-            <span className="italic">by a YouTube video.</span>
+            <span className="italic">different pressure.</span>
           </h2>
 
           <div className="events-grid">
             <Link className="event-card" to="/events?type=Flagship">
               <p className="event-card-type">Flagship</p>
               <h3>Builders Night</h3>
-              <p>Live demos, sharp talks, and a room full of people building with AI. Social energy meets builder substance. This is where you realize you&apos;ve been in the wrong rooms.</p>
+              <p>Live demos, sharp talks, and a room full of people building with AI. Social energy meets builder substance. This is where you realize you have been in the wrong rooms.</p>
               <span className="event-tag">Open</span>
             </Link>
             <Link className="event-card" to="/events?type=Execution">
@@ -146,43 +164,40 @@ export default function HomePage() {
         </div>
       </section>
 
-      {nextEvent ? (
+      {!eventsLoading && upcomingEvents.length > 0 ? (
         <section className="spotlight-section">
           <div className="section-wrap">
-            <div className="spotlight-grid">
+            <p className="section-label" style={{ marginBottom: 32 }}>
+              {upcomingEvents.length > 1 ? 'Upcoming events' : upcomingEvents[0].derivedStatus === 'ongoing' ? 'Ongoing event' : 'Next event'}
+            </p>
+            <div className="spotlight-grid spotlight-grid-cards">
               <div className="spotlight-content">
-                <p className="section-label">{nextEvent.derivedStatus === 'ongoing' ? 'Ongoing Event' : 'Next Event'}</p>
-                <h2>{nextEvent.title}</h2>
-                <div className="spotlight-meta">
-                  <span>{nextEvent.dateDisplay}</span>
-                  <span>{nextEvent.location}</span>
-                </div>
-                <p>{nextEvent.tagline}</p>
+                <h2>{upcomingEvents.length > 1 ? 'Pick your next room.' : upcomingEvents[0].title}</h2>
+                <p>{upcomingEvents.length > 1 ? 'These are the next rooms on deck. Choose the one that fits your momentum and get in early.' : upcomingEvents[0].tagline}</p>
                 <button type="button" className="btn-primary" onClick={openGetStarted}>
-                  Register For Upcoming Events <span className="btn-arrow">&rarr;</span>
+                  Register for Upcoming Events <span className="btn-arrow">&rarr;</span>
                 </button>
               </div>
 
-              <div className="spotlight-card">
-                <div className="spotlight-card-number">01</div>
-                <div>
-                  <div className="detail-row">
-                    <span className="label">Format</span>
-                    <span className="val">{nextEvent.format}</span>
+              <div className={`spotlight-cards-row${upcomingEvents.length === 1 ? ' is-single' : ''}`}>
+                {upcomingEvents.map((event, i) => (
+                  <div className="spotlight-card" key={event.id}>
+                    <div className="spotlight-card-number">0{i + 1}</div>
+                    <div className="spotlight-card-title-wrap">
+                      <h3>{event.title}</h3>
+                      <div className="spotlight-meta">
+                        {event.dateDisplay ? <span>{event.dateDisplay}</span> : null}
+                        {event.location ? <span>{event.location}</span> : null}
+                      </div>
+                    </div>
+                    <div>
+                      {event.format ? <div className="detail-row"><span className="label">Format</span><span className="val">{event.format}</span></div> : null}
+                      {event.capacity ? <div className="detail-row"><span className="label">Capacity</span><span className="val">{event.capacity} builders</span></div> : null}
+                      {event.entry ? <div className="detail-row"><span className="label">Entry</span><span className="val">{event.entry}</span></div> : null}
+                      {event.duration ? <div className="detail-row"><span className="label">Duration</span><span className="val">{event.duration}</span></div> : null}
+                    </div>
                   </div>
-                  <div className="detail-row">
-                    <span className="label">Capacity</span>
-                    <span className="val">{nextEvent.capacity} builders</span>
-                  </div>
-                  <div className="detail-row">
-                    <span className="label">Entry</span>
-                    <span className="val">{nextEvent.entry}</span>
-                  </div>
-                  <div className="detail-row">
-                    <span className="label">Duration</span>
-                    <span className="val">{nextEvent.duration}</span>
-                  </div>
-                </div>
+                ))}
               </div>
             </div>
           </div>
@@ -193,31 +208,31 @@ export default function HomePage() {
         <div className="updates-preview-head">
           <div>
             <p className="section-label">Platform updates</p>
-            <h2 className="section-title">News, recaps, and AI workflow notes for members and builders.</h2>
+            <h2 className="section-title">Recent updates</h2>
           </div>
           <Link to="/updates" className="btn-secondary">See All Updates</Link>
         </div>
         <div className="updates-grid">
           {featuredUpdates.map((update) => (
-            <Link to={`/updates/${update.slug}`} className="update-card" key={update.id}>
+            <button type="button" className="update-card update-card-button" key={update.id} onClick={() => openUpdatePreview(update.slug)}>
               <p className="event-card-type">{update.category}</p>
               <h3>{update.title}</h3>
               <p>{update.excerpt}</p>
               <span className="cta-arrow">Read Update &rarr;</span>
-            </Link>
+            </button>
           ))}
         </div>
       </section>
 
       <section className="node-section" id="node-lead">
         <div className="section-wrap">
-          <p className="section-label">Run your campus node</p>
+          <p className="section-label">Become a Node Lead</p>
           <h2>
-            Become a
+            Run the signal
             <br />
-            <span className="italic">Node Lead.</span>
+            <span className="italic">in your local room.</span>
           </h2>
-          <p>You won&apos;t be an ambassador. You&apos;ll own AI Unplugged at your college. Build the local community. Bring the right people. Get direct access to the ecosystem.</p>
+          <p>Node Leads help build stronger local clusters across cities, campuses, communities, and builder networks. If you can gather sharp people and keep quality high, we want to hear from you.</p>
           <Link to="/node-lead" className="btn-primary">
             Apply as Node Lead <span className="btn-arrow">&rarr;</span>
           </Link>
@@ -238,16 +253,16 @@ export default function HomePage() {
                 <div className="host-visual-card host-card-two">
                   <span className="host-chip">LOCAL</span>
                   <strong>Your venue, our format</strong>
-                  <p>Gather the right people and turn your city or campus into the next strong node.</p>
+                  <p>Gather the right people and turn your city, campus, or builder cluster into the next strong node.</p>
                 </div>
               </div>
             </div>
 
             <div className="host-callout-copy">
-              <p className="section-label">Want to become a host?</p>
-              <h2 className="section-title">Build the room your city should already have.</h2>
+              <p className="section-label">Become a Host</p>
+              <h2 className="section-title">Bring an AI Unplugged room to your ecosystem.</h2>
               <p className="page-sub">
-                If you have the venue, the local context, and the ability to gather serious people, host an AI Unplugged session with us. We care more about room quality than event count.
+                If you have the venue, the local pull, and the instinct for room quality, we can help shape a session that actually matters.
               </p>
               <Link to="/become-a-host" className="btn-primary">
                 Become a Host <span className="btn-arrow">&rarr;</span>

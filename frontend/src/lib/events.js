@@ -87,3 +87,19 @@ export function formatEventStatusLabel(event) {
   const derived = event.derivedStatus || getEventStatus(event);
   return derived.toUpperCase();
 }
+
+export function resolveHomeSpotlightEvents(events, featuredHomeEventIds = [], now = new Date()) {
+  const sorted = sortEventsByState(events, now);
+  const eligible = sorted.filter((event) => (
+    event.publishState === 'published'
+    && (event.derivedStatus === 'ongoing' || event.derivedStatus === 'upcoming')
+  ));
+
+  const featuredIds = Array.isArray(featuredHomeEventIds) ? featuredHomeEventIds.slice(0, 2) : [];
+  const featured = featuredIds
+    .map((id) => eligible.find((event) => event.id === id))
+    .filter(Boolean);
+
+  const fallback = eligible.filter((event) => !featured.some((picked) => picked.id === event.id));
+  return [...featured, ...fallback].slice(0, 2);
+}

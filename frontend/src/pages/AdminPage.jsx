@@ -1,17 +1,20 @@
 import { useEffect, useMemo, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import RichTextEditor from '../components/RichTextEditor';
 import { useAuth } from '../context/useAuth';
-import { formatEventStatusLabel, sortEventsByState } from '../lib/events';
-import { defaultEventFormSchema, defaultNodeLeadFormSchema, FIELD_TYPES, UPDATE_CATEGORIES } from '../lib/defaultContent';
+import { formatEventStatusLabel, resolveHomeSpotlightEvents, sortEventsByState } from '../lib/events';
+import { defaultNodeLeadFormSchema, FIELD_TYPES, UPDATE_CATEGORIES } from '../lib/defaultContent';
 import {
   deleteDocument,
   exportDatasetForEvent,
+  geocodeAddress,
   getAdminEvents,
   getAdminUpdates,
   getCommentsForAdmin,
   getEventRegistrations,
   getFormSchemas,
   getNodeLeadApplications,
+  getHomeSpotlightSettings,
   getSetupStatus,
   getSubscribers,
   grantAdminRole,
@@ -21,10 +24,13 @@ import {
   revokeAdminRole,
   saveEvent,
   saveFormSchema,
+  saveHomeSpotlightSettings,
   saveUpdatePost,
   sendNewsletterCampaign,
+  updateNewsletterPreference,
   updateCommentStatus,
-  updateReviewStatus
+  updateReviewStatus,
+  uploadAttachment
 } from '../lib/platform';
 
 const TAB_LABELS = {
@@ -32,11 +38,59 @@ const TAB_LABELS = {
   events: 'Events',
   'node-lead': 'Node Lead',
   updates: 'Updates',
-  comments: 'Comments',
   newsletter: 'Newsletter',
+  profile: 'Profile',
   admins: 'Admins'
 };
 const tabs = Object.keys(TAB_LABELS);
+
+const TAB_ICONS = {
+  overview: (
+    <svg width="15" height="15" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+      <rect x="1" y="1" width="6" height="6" rx="1.5" stroke="currentColor" strokeWidth="1.5"/>
+      <rect x="9" y="1" width="6" height="6" rx="1.5" stroke="currentColor" strokeWidth="1.5"/>
+      <rect x="1" y="9" width="6" height="6" rx="1.5" stroke="currentColor" strokeWidth="1.5"/>
+      <rect x="9" y="9" width="6" height="6" rx="1.5" stroke="currentColor" strokeWidth="1.5"/>
+    </svg>
+  ),
+  events: (
+    <svg width="15" height="15" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+      <rect x="1" y="3" width="14" height="12" rx="2" stroke="currentColor" strokeWidth="1.5"/>
+      <path d="M1 7h14" stroke="currentColor" strokeWidth="1.5"/>
+      <path d="M5 1v4M11 1v4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+    </svg>
+  ),
+  'node-lead': (
+    <svg width="15" height="15" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+      <circle cx="6" cy="5" r="3" stroke="currentColor" strokeWidth="1.5"/>
+      <path d="M1 14c0-2.761 2.239-5 5-5s5 2.239 5 5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+      <path d="M12 8v4M10 10h4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+    </svg>
+  ),
+  updates: (
+    <svg width="15" height="15" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+      <rect x="2" y="1" width="12" height="14" rx="2" stroke="currentColor" strokeWidth="1.5"/>
+      <path d="M5 5h6M5 8h6M5 11h4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+    </svg>
+  ),
+  newsletter: (
+    <svg width="15" height="15" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+      <rect x="1" y="3" width="14" height="10" rx="2" stroke="currentColor" strokeWidth="1.5"/>
+      <path d="M1 5.5l7 4.5 7-4.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+    </svg>
+  ),
+  profile: (
+    <svg width="15" height="15" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+      <circle cx="8" cy="5" r="3" stroke="currentColor" strokeWidth="1.5" />
+      <path d="M2.5 14c0-3.038 2.462-5.5 5.5-5.5s5.5 2.462 5.5 5.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+    </svg>
+  ),
+  admins: (
+    <svg width="15" height="15" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+      <path d="M8 1.5L2 4.5v4.5c0 3 2.686 5.5 6 5.5s6-2.5 6-5.5V4.5L8 1.5z" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round"/>
+    </svg>
+  ),
+};
 
 function baseNameField() {
   return {
@@ -62,6 +116,10 @@ function fieldTemplate() {
   };
 }
 
+const DEFAULT_MAP_LAT = 23.0456;
+const DEFAULT_MAP_LNG = 72.5271;
+const DEFAULT_MAP_ADDRESS = '1st Floor, D Block, Satyam Corporate Square, Sindhu Bhavan Rd, Bodakdev, Ahmedabad, Gujarat 380054';
+
 function emptyEventDraft() {
   return {
     title: '',
@@ -79,7 +137,11 @@ function emptyEventDraft() {
     startTime: '',
     endTime: '',
     formId: '',
-    registrationMode: 'default'
+    registrationMode: 'default',
+    mapEnabled: false,
+    mapLat: DEFAULT_MAP_LAT,
+    mapLng: DEFAULT_MAP_LNG,
+    mapAddress: DEFAULT_MAP_ADDRESS
   };
 }
 
@@ -166,9 +228,31 @@ function downloadExportFile(result) {
   URL.revokeObjectURL(link.href);
 }
 
+function SubNav({ items, active, onChange }) {
+  return (
+    <div className="admin-sub-nav">
+      {items.map(({ key, label }) => (
+        <button
+          type="button"
+          key={key}
+          className={`admin-sub-nav-item${active === key ? ' is-active' : ''}`}
+          onClick={() => onChange(key)}
+        >
+          {label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 export default function AdminPage() {
-  const { loading, isAuthenticated, isAdmin, isFirebaseConfigured, setupWarnings } = useAuth();
-  const [tab, setTab] = useState('overview');
+  const { loading, isAuthenticated, isAdmin, isFirebaseConfigured, setupWarnings, profile, user, refreshProfile } = useAuth();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const [tab, setTab] = useState(searchParams.get('tab') && tabs.includes(searchParams.get('tab')) ? searchParams.get('tab') : 'overview');
+  const [eventsSubTab, setEventsSubTab] = useState('events');
+  const [nodeLeadSubTab, setNodeLeadSubTab] = useState('applications');
+  const [updatesSubTab, setUpdatesSubTab] = useState('posts');
+
   const [events, setEvents] = useState([]);
   const [forms, setForms] = useState([]);
   const [registrations, setRegistrations] = useState([]);
@@ -181,21 +265,39 @@ export default function AdminPage() {
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
   const [isSaving, setIsSaving] = useState(false);
+  const [homeSpotlightIds, setHomeSpotlightIds] = useState([]);
+  const [spotlightModalOpen, setSpotlightModalOpen] = useState(false);
+  const [spotlightDraftIds, setSpotlightDraftIds] = useState([]);
+  const [spotlightSelectionError, setSpotlightSelectionError] = useState('');
 
   const [eventDraft, setEventDraft] = useState(emptyEventDraft());
   const [eventCustomSchema, setEventCustomSchema] = useState(schemaFromEvent(emptyEventDraft()));
   const [nodeLeadMode, setNodeLeadMode] = useState('default');
   const [nodeLeadSchema, setNodeLeadSchema] = useState(defaultNodeLeadFormSchema);
-  const [updateDraft, setUpdateDraft] = useState({ id: '', title: '', slug: '', excerpt: '', bodyHtml: '', category: 'update', commentMode: 'moderated', publishState: 'draft', authorName: 'AI Unplugged Team', scope: 'general', eventId: '' });
+  const [updateDraft, setUpdateDraft] = useState({ id: '', title: '', slug: '', excerpt: '', bodyHtml: '', category: 'update', commentMode: 'moderated', publishState: 'draft', authorName: 'AI Unplugged Team', scope: 'general', eventId: '', attachments: [] });
   const [newsletterDraft, setNewsletterDraft] = useState({ subject: '', html: '', text: '' });
   const [newsletterRecipientsUpload, setNewsletterRecipientsUpload] = useState(null);
   const [adminDraftEmail, setAdminDraftEmail] = useState('');
+  const [isUploadingAttachment, setIsUploadingAttachment] = useState(false);
+  const [isGeocoding, setIsGeocoding] = useState(false);
   const [selectedEventExportId, setSelectedEventExportId] = useState('');
   const [selectedUpdateId, setSelectedUpdateId] = useState('');
+  const [profileSaving, setProfileSaving] = useState(false);
 
   const eventForms = useMemo(() => forms.filter((item) => item.kind === 'event'), [forms]);
-  const nodeLeadForms = useMemo(() => forms.filter((item) => item.kind === 'nodeLead'), [forms]);
   const sortedEvents = useMemo(() => sortEventsByState(events), [events]);
+  const eligibleSpotlightEvents = useMemo(
+    () => sortedEvents.filter((item) => item.publishState === 'published' && (item.derivedStatus === 'ongoing' || item.derivedStatus === 'upcoming')),
+    [sortedEvents]
+  );
+  const validHomeSpotlightIds = useMemo(
+    () => homeSpotlightIds.filter((id) => eligibleSpotlightEvents.some((item) => item.id === id)).slice(0, 2),
+    [eligibleSpotlightEvents, homeSpotlightIds]
+  );
+  const resolvedSpotlightEvents = useMemo(
+    () => resolveHomeSpotlightEvents(events, homeSpotlightIds),
+    [events, homeSpotlightIds]
+  );
   const selectedUpdateComments = useMemo(
     () => selectedUpdateId ? comments.filter((item) => item.updateId === selectedUpdateId) : comments,
     [comments, selectedUpdateId]
@@ -217,7 +319,7 @@ export default function AdminPage() {
     if (!isAuthenticated || !isAdmin) return;
 
     try {
-      const [nextEvents, nextForms, nextRegistrations, nextNodeLeads, nextUpdates, nextComments, nextSubscribers, nextAdmins] = await Promise.all([
+      const [nextEvents, nextForms, nextRegistrations, nextNodeLeads, nextUpdates, nextComments, nextSubscribers, nextAdmins, nextHomeSettings] = await Promise.all([
         getAdminEvents(),
         getFormSchemas(),
         getEventRegistrations(),
@@ -225,7 +327,8 @@ export default function AdminPage() {
         getAdminUpdates(),
         getCommentsForAdmin(),
         getSubscribers(),
-        listAdmins()
+        listAdmins(),
+        getHomeSpotlightSettings()
       ]);
 
       setEvents(nextEvents);
@@ -236,6 +339,7 @@ export default function AdminPage() {
       setComments(nextComments);
       setSubscribers(nextSubscribers);
       setAdmins(nextAdmins);
+      setHomeSpotlightIds(Array.isArray(nextHomeSettings?.featuredHomeEventIds) ? nextHomeSettings.featuredHomeEventIds.slice(0, 2) : []);
 
       const activeNodeLeadSchema = nextForms.find((item) => item.kind === 'nodeLead' && item.isDefault) || nextForms.find((item) => item.kind === 'nodeLead') || defaultNodeLeadFormSchema;
       setNodeLeadSchema(activeNodeLeadSchema);
@@ -249,6 +353,13 @@ export default function AdminPage() {
     document.title = 'Admin - AI Unplugged';
     refreshAll();
   }, [isAuthenticated, isAdmin]);
+
+  useEffect(() => {
+    const currentParamTab = searchParams.get('tab');
+    if (currentParamTab && tabs.includes(currentParamTab) && currentParamTab !== tab) {
+      setTab(currentParamTab);
+    }
+  }, [searchParams, tab]);
 
   useEffect(() => {
     setEventCustomSchema(schemaFromEvent(eventDraft));
@@ -271,11 +382,67 @@ export default function AdminPage() {
     setError('');
   }
 
+  function changeTab(nextTab) {
+    setTab(nextTab);
+    const nextParams = new URLSearchParams(searchParams);
+    if (nextTab === 'overview') nextParams.delete('tab');
+    else nextParams.set('tab', nextTab);
+    setSearchParams(nextParams, { replace: true });
+  }
+
+  function openSpotlightModal() {
+    setSpotlightDraftIds(validHomeSpotlightIds);
+    setSpotlightSelectionError('');
+    setSpotlightModalOpen(true);
+  }
+
+  function closeSpotlightModal() {
+    setSpotlightModalOpen(false);
+    setSpotlightSelectionError('');
+  }
+
+  function toggleSpotlightSelection(eventId) {
+    setSpotlightSelectionError('');
+    setSpotlightDraftIds((current) => {
+      if (current.includes(eventId)) return current.filter((id) => id !== eventId);
+      if (current.length >= 2) {
+        setSpotlightSelectionError('Choose up to two events for the home spotlight.');
+        return current;
+      }
+      return [...current, eventId];
+    });
+  }
+
   function selectEvent(event) {
     const registrationMode = event.formId ? 'custom' : 'default';
     setEventDraft({ ...event, registrationMode });
     const schema = eventForms.find((item) => item.id === event.formId);
     setEventCustomSchema(schema || schemaFromEvent(event));
+    setEventsSubTab('events');
+  }
+
+  async function resolveEventMapAddress(addressInput) {
+    const targetAddress = String(addressInput || eventDraft.mapAddress || eventDraft.location || '').trim();
+    if (!targetAddress || !eventDraft.mapEnabled) return null;
+
+    setIsGeocoding(true);
+    try {
+      const resolved = await geocodeAddress(targetAddress);
+      setEventDraft((current) => ({
+        ...current,
+        location: current.location || resolved.address,
+        mapAddress: resolved.address,
+        mapLat: resolved.lat,
+        mapLng: resolved.lng
+      }));
+      setMessage('Map coordinates updated from address.');
+      return resolved;
+    } catch (nextError) {
+      setError(nextError?.message || 'Could not resolve the event address.');
+      return null;
+    } finally {
+      setIsGeocoding(false);
+    }
   }
 
   async function handleSaveEvent(event) {
@@ -283,6 +450,11 @@ export default function AdminPage() {
     resetMessages();
     setIsSaving(true);
     try {
+      let resolvedMap = null;
+      if (eventDraft.mapEnabled) {
+        resolvedMap = await resolveEventMapAddress(eventDraft.mapAddress || eventDraft.location);
+      }
+
       let formId = '';
       if (eventDraft.registrationMode === 'custom') {
         const savedFormId = await saveFormSchema({
@@ -299,7 +471,10 @@ export default function AdminPage() {
 
       await saveEvent({
         ...eventDraft,
-        formId
+        formId,
+        mapAddress: resolvedMap?.address || eventDraft.mapAddress || eventDraft.location,
+        mapLat: resolvedMap?.lat ?? eventDraft.mapLat,
+        mapLng: resolvedMap?.lng ?? eventDraft.mapLng
       });
       setEventDraft(emptyEventDraft());
       setEventCustomSchema(schemaFromEvent(emptyEventDraft()));
@@ -337,6 +512,20 @@ export default function AdminPage() {
     }
   }
 
+  async function handleProfileNewsletterChange(subscribed) {
+    resetMessages();
+    setProfileSaving(true);
+    try {
+      await updateNewsletterPreference(subscribed);
+      await refreshProfile?.();
+      setMessage(subscribed ? 'Newsletter subscription enabled.' : 'Newsletter subscription paused.');
+    } catch (nextError) {
+      setError(nextError?.message || 'Could not update newsletter preference.');
+    } finally {
+      setProfileSaving(false);
+    }
+  }
+
   async function handleExport(format, eventId = '') {
     resetMessages();
     try {
@@ -371,6 +560,34 @@ export default function AdminPage() {
     }
   }
 
+  async function handleAttachmentUpload(files) {
+    if (!files?.length) return;
+    setIsUploadingAttachment(true);
+    resetMessages();
+    try {
+      const uploaded = await Promise.all(
+        Array.from(files).map((file) => uploadAttachment(file, updateDraft.id || 'draft'))
+      );
+      setUpdateDraft((c) => ({ ...c, attachments: [...(c.attachments || []), ...uploaded] }));
+      setMessage(`${uploaded.length} file${uploaded.length > 1 ? 's' : ''} uploaded.`);
+    } catch (nextError) {
+      setError(nextError?.message || 'Could not upload attachment.');
+    } finally {
+      setIsUploadingAttachment(false);
+    }
+  }
+
+  function removeAttachment(id) {
+    setUpdateDraft((c) => ({ ...c, attachments: (c.attachments || []).filter((a) => a.id !== id) }));
+  }
+
+  function toggleAttachmentDownloadable(id) {
+    setUpdateDraft((c) => ({
+      ...c,
+      attachments: (c.attachments || []).map((a) => a.id === id ? { ...a, downloadable: !a.downloadable } : a)
+    }));
+  }
+
   async function handleSaveUpdate(event) {
     event.preventDefault();
     resetMessages();
@@ -382,7 +599,7 @@ export default function AdminPage() {
         bodyHtml: updateDraft.bodyHtml,
         body: htmlToParagraphs(updateDraft.bodyHtml)
       });
-      setUpdateDraft({ id: '', title: '', slug: '', excerpt: '', bodyHtml: '', category: 'update', commentMode: 'moderated', publishState: 'draft', authorName: 'AI Unplugged Team', scope: 'general', eventId: '' });
+      setUpdateDraft({ id: '', title: '', slug: '', excerpt: '', bodyHtml: '', category: 'update', commentMode: 'moderated', publishState: 'draft', authorName: 'AI Unplugged Team', scope: 'general', eventId: '', attachments: [] });
       setMessage('Update saved.');
       refreshAll();
     } catch (nextError) {
@@ -485,6 +702,28 @@ export default function AdminPage() {
     }
   }
 
+  async function handleSaveHomeSpotlight() {
+    resetMessages();
+    if (spotlightDraftIds.length > 2) {
+      setSpotlightSelectionError('Choose up to two events for the home spotlight.');
+      return;
+    }
+
+    setIsSaving(true);
+    try {
+      await saveHomeSpotlightSettings(spotlightDraftIds);
+      setHomeSpotlightIds(spotlightDraftIds);
+      setSpotlightModalOpen(false);
+      setSpotlightSelectionError('');
+      setMessage('Home spotlight updated.');
+      refreshAll();
+    } catch (nextError) {
+      setError(nextError?.message || 'Could not save the home spotlight.');
+    } finally {
+      setIsSaving(false);
+    }
+  }
+
   if (loading) {
     return <div className="page-header"><p className="page-sub">Loading admin workspace...</p></div>;
   }
@@ -513,7 +752,8 @@ export default function AdminPage() {
         <aside className="admin-sidebar">
           <p className="section-label">Admin</p>
           {tabs.map((item) => (
-            <button type="button" key={item} className={`admin-tab${tab === item ? ' is-active' : ''}`} onClick={() => setTab(item)}>
+            <button type="button" key={item} className={`admin-tab${tab === item ? ' is-active' : ''}`} onClick={() => changeTab(item)}>
+              <span className="admin-tab-icon">{TAB_ICONS[item]}</span>
               {TAB_LABELS[item]}
             </button>
           ))}
@@ -523,16 +763,60 @@ export default function AdminPage() {
           {message ? <div className="auth-success">{message}</div> : null}
           {error ? <div className="form-error" style={{ display: 'block' }}>{error}</div> : null}
 
+          {/* OVERVIEW */}
           {tab === 'overview' ? (
             <>
               <div className="admin-grid">
-                <div className="dashboard-card"><h3>Events</h3><p>{events.length} tracked events</p></div>
-                <div className="dashboard-card"><h3>Registrations</h3><p>{registrations.length} event registrations</p></div>
-                <div className="dashboard-card"><h3>Node Leads</h3><p>{nodeLeads.length} applications</p></div>
-                <div className="dashboard-card"><h3>Updates</h3><p>{updates.length} content items</p></div>
-                <div className="dashboard-card"><h3>Subscribers</h3><p>{subscribers.length} contacts</p></div>
-                <div className="dashboard-card"><h3>Admins</h3><p>{admins.length} active admins</p></div>
+                <div className="admin-stat-card">
+                  <div className="admin-stat-icon">
+                    <svg width="20" height="20" viewBox="0 0 16 16" fill="none" aria-hidden="true"><rect x="1" y="3" width="14" height="12" rx="2" stroke="currentColor" strokeWidth="1.5"/><path d="M1 7h14" stroke="currentColor" strokeWidth="1.5"/><path d="M5 1v4M11 1v4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/></svg>
+                  </div>
+                  <div className="admin-stat-number">{events.length}</div>
+                  <div className="admin-stat-label">Events</div>
+                </div>
+                <div className="admin-stat-card">
+                  <div className="admin-stat-icon">
+                    <svg width="20" height="20" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M1 12L5 8l3 3 3-4 4 5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>
+                  </div>
+                  <div className="admin-stat-number">{registrations.length}</div>
+                  <div className="admin-stat-label">Registrations</div>
+                </div>
+                <div className="admin-stat-card">
+                  <div className="admin-stat-icon">
+                    <svg width="20" height="20" viewBox="0 0 16 16" fill="none" aria-hidden="true"><circle cx="6" cy="5" r="3" stroke="currentColor" strokeWidth="1.5"/><path d="M1 14c0-2.761 2.239-5 5-5s5 2.239 5 5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/><path d="M12 8v4M10 10h4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/></svg>
+                  </div>
+                  <div className="admin-stat-number">{nodeLeads.length}</div>
+                  <div className="admin-stat-label">Node Leads</div>
+                </div>
+                <div className="admin-stat-card">
+                  <div className="admin-stat-icon">
+                    <svg width="20" height="20" viewBox="0 0 16 16" fill="none" aria-hidden="true"><rect x="2" y="1" width="12" height="14" rx="2" stroke="currentColor" strokeWidth="1.5"/><path d="M5 5h6M5 8h6M5 11h4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/></svg>
+                  </div>
+                  <div className="admin-stat-number">{updates.length}</div>
+                  <div className="admin-stat-label">Posts</div>
+                </div>
+                <div className="admin-stat-card">
+                  <div className="admin-stat-icon">
+                    <svg width="20" height="20" viewBox="0 0 16 16" fill="none" aria-hidden="true"><rect x="1" y="3" width="14" height="10" rx="2" stroke="currentColor" strokeWidth="1.5"/><path d="M1 5.5l7 4.5 7-4.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/></svg>
+                  </div>
+                  <div className="admin-stat-number">{subscribers.length}</div>
+                  <div className="admin-stat-label">Subscribers</div>
+                </div>
+                <div className="admin-stat-card">
+                  <div className="admin-stat-icon">
+                    <svg width="20" height="20" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M8 1.5L2 4.5v4.5c0 3 2.686 5.5 6 5.5s6-2.5 6-5.5V4.5L8 1.5z" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round"/></svg>
+                  </div>
+                  <div className="admin-stat-number">{admins.length}</div>
+                  <div className="admin-stat-label">Admins</div>
+                </div>
               </div>
+
+              <div className="admin-quick-actions">
+                <button type="button" className="btn-secondary" onClick={() => { changeTab('events'); setEventsSubTab('events'); }}>+ Create Event</button>
+                <button type="button" className="btn-secondary" onClick={() => { changeTab('updates'); setUpdatesSubTab('posts'); }}>+ New Post</button>
+                <button type="button" className="btn-secondary" onClick={() => changeTab('newsletter')}>Send Newsletter</button>
+              </div>
+
               <div className="dashboard-card">
                 <h3>Local backend setup</h3>
                 <div className="admin-kv-list">
@@ -549,73 +833,240 @@ export default function AdminPage() {
             </>
           ) : null}
 
+          {/* EVENTS */}
           {tab === 'events' ? (
             <div className="admin-section">
-              <form className="form-card" onSubmit={handleSaveEvent}>
-                <h3>Create or update event</h3>
-                <div className="form-field field-inline-2">
-                  <div className="form-field"><label className="form-label">Title</label><input className="form-input" value={eventDraft.title} onChange={(e) => setEventDraft((c) => ({ ...c, title: e.target.value }))} /></div>
-                  <div className="form-field"><label className="form-label">Format</label><input className="form-input" value={eventDraft.format} onChange={(e) => setEventDraft((c) => ({ ...c, format: e.target.value }))} /></div>
-                </div>
-                <div className="form-field field-inline-2">
-                  <div className="form-field"><label className="form-label">Date</label><input className="form-input" type="date" value={eventDraft.date} onChange={(e) => setEventDraft((c) => ({ ...c, date: e.target.value }))} /></div>
-                  <div className="form-field"><label className="form-label">Display date</label><input className="form-input" value={eventDraft.dateDisplay} onChange={(e) => setEventDraft((c) => ({ ...c, dateDisplay: e.target.value }))} /></div>
-                </div>
-                <div className="form-field field-inline-2">
-                  <div className="form-field"><label className="form-label">Location</label><input className="form-input" value={eventDraft.location} onChange={(e) => setEventDraft((c) => ({ ...c, location: e.target.value }))} /></div>
-                  <div className="form-field"><label className="form-label">Duration</label><input className="form-input" value={eventDraft.duration} onChange={(e) => setEventDraft((c) => ({ ...c, duration: e.target.value }))} /></div>
-                </div>
-                <div className="form-field field-inline-2">
-                  <div className="form-field"><label className="form-label">Start time</label><input className="form-input" type="time" value={eventDraft.startTime || ''} onChange={(e) => setEventDraft((c) => ({ ...c, startTime: e.target.value }))} /></div>
-                  <div className="form-field"><label className="form-label">End time</label><input className="form-input" type="time" value={eventDraft.endTime || ''} onChange={(e) => setEventDraft((c) => ({ ...c, endTime: e.target.value }))} /></div>
-                </div>
-                <div className="form-field field-inline-2">
-                  <div className="form-field"><label className="form-label">Type</label><select className="form-select" value={eventDraft.type} onChange={(e) => setEventDraft((c) => ({ ...c, type: e.target.value }))}><option>Flagship</option><option>Execution</option><option>Showcase</option><option>Opportunity</option></select></div>
-                  <div className="form-field"><label className="form-label">Entry</label><select className="form-select" value={eventDraft.entry} onChange={(e) => setEventDraft((c) => ({ ...c, entry: e.target.value }))}><option>Application</option><option>Open</option><option>Invite Only</option><option>Curated</option></select></div>
-                </div>
-                <div className="form-field field-inline-2">
-                  <div className="form-field"><label className="form-label">Publish state</label><select className="form-select" value={eventDraft.publishState} onChange={(e) => setEventDraft((c) => ({ ...c, publishState: e.target.value }))}><option value="draft">draft</option><option value="published">published</option></select></div>
-                  <div className="form-field"><label className="form-label">Capacity</label><input className="form-input" type="number" value={eventDraft.capacity || 0} onChange={(e) => setEventDraft((c) => ({ ...c, capacity: Number(e.target.value) }))} /></div>
-                </div>
-                <div className="form-field"><label className="form-label">Tagline</label><textarea className="form-textarea" value={eventDraft.tagline} onChange={(e) => setEventDraft((c) => ({ ...c, tagline: e.target.value }))} /></div>
-                <div className="form-field">
-                  <label className="form-label">Registration form</label>
-                  <select className="form-select" value={eventDraft.registrationMode || 'default'} onChange={(e) => setEventDraft((c) => ({ ...c, registrationMode: e.target.value }))}>
-                    <option value="default">Use default form</option>
-                    <option value="custom">Use custom form</option>
-                  </select>
-                </div>
-                {eventDraft.registrationMode === 'custom' ? (
-                  <div className="dashboard-card">
-                    <h3>Custom event form</h3>
-                    <div className="form-field"><label className="form-label">Form title</label><input className="form-input" value={eventCustomSchema.title || ''} onChange={(e) => setEventCustomSchema((c) => ({ ...c, title: e.target.value }))} /></div>
-                    <FieldBuilder schema={eventCustomSchema} onChange={setEventCustomSchema} />
-                  </div>
-                ) : null}
-                <button type="submit" className="btn-primary" disabled={isSaving}>{isSaving ? 'Saving...' : 'Save Event'}</button>
-              </form>
+              <SubNav
+                items={[
+                  { key: 'events', label: 'Events' },
+                  { key: 'registrations', label: `Registrations${registrations.length ? ` (${registrations.length})` : ''}` },
+                ]}
+                active={eventsSubTab}
+                onChange={setEventsSubTab}
+              />
 
-              <div className="dashboard-card">
-                <div className="admin-inline-actions">
-                  <h3>Registrations and export</h3>
+              {eventsSubTab === 'events' ? (
+                <>
+                  <form className="form-card" onSubmit={handleSaveEvent}>
+                    <h3>{eventDraft.id ? 'Edit event' : 'Create event'}</h3>
+                    <div className="form-field field-inline-2">
+                      <div className="form-field"><label className="form-label">Title</label><input className="form-input" value={eventDraft.title} onChange={(e) => setEventDraft((c) => ({ ...c, title: e.target.value }))} /></div>
+                      <div className="form-field"><label className="form-label">Format</label><input className="form-input" value={eventDraft.format} onChange={(e) => setEventDraft((c) => ({ ...c, format: e.target.value }))} /></div>
+                    </div>
+                    <div className="form-field field-inline-2">
+                      <div className="form-field"><label className="form-label">Date</label><input className="form-input" type="date" value={eventDraft.date} onChange={(e) => setEventDraft((c) => ({ ...c, date: e.target.value }))} /></div>
+                      <div className="form-field"><label className="form-label">Display date</label><input className="form-input" value={eventDraft.dateDisplay} onChange={(e) => setEventDraft((c) => ({ ...c, dateDisplay: e.target.value }))} /></div>
+                    </div>
+                    <div className="form-field field-inline-2">
+                      <div className="form-field"><label className="form-label">Location</label><input className="form-input" value={eventDraft.location} onChange={(e) => setEventDraft((c) => ({ ...c, location: e.target.value, mapAddress: c.mapEnabled ? e.target.value : c.mapAddress }))} onBlur={() => resolveEventMapAddress(eventDraft.location)} /></div>
+                      <div className="form-field"><label className="form-label">Duration</label><input className="form-input" value={eventDraft.duration} onChange={(e) => setEventDraft((c) => ({ ...c, duration: e.target.value }))} /></div>
+                    </div>
+                    <div className="form-field field-inline-2">
+                      <div className="form-field"><label className="form-label">Start time</label><input className="form-input" type="time" value={eventDraft.startTime || ''} onChange={(e) => setEventDraft((c) => ({ ...c, startTime: e.target.value }))} /></div>
+                      <div className="form-field"><label className="form-label">End time</label><input className="form-input" type="time" value={eventDraft.endTime || ''} onChange={(e) => setEventDraft((c) => ({ ...c, endTime: e.target.value }))} /></div>
+                    </div>
+                    <div className="form-field field-inline-2">
+                      <div className="form-field"><label className="form-label">Type</label><select className="form-select" value={eventDraft.type} onChange={(e) => setEventDraft((c) => ({ ...c, type: e.target.value }))}><option>Flagship</option><option>Execution</option><option>Showcase</option><option>Opportunity</option></select></div>
+                      <div className="form-field"><label className="form-label">Entry</label><select className="form-select" value={eventDraft.entry} onChange={(e) => setEventDraft((c) => ({ ...c, entry: e.target.value }))}><option>Application</option><option>Open</option><option>Invite Only</option><option>Curated</option></select></div>
+                    </div>
+                    <div className="form-field field-inline-2">
+                      <div className="form-field"><label className="form-label">Publish state</label><select className="form-select" value={eventDraft.publishState} onChange={(e) => setEventDraft((c) => ({ ...c, publishState: e.target.value }))}><option value="draft">draft</option><option value="published">published</option></select></div>
+                      <div className="form-field"><label className="form-label">Capacity</label><input className="form-input" type="number" value={eventDraft.capacity || 0} onChange={(e) => setEventDraft((c) => ({ ...c, capacity: Number(e.target.value) }))} /></div>
+                    </div>
+                    <div className="form-field"><label className="form-label">Tagline</label><textarea className="form-textarea" value={eventDraft.tagline} onChange={(e) => setEventDraft((c) => ({ ...c, tagline: e.target.value }))} /></div>
+                    <div className="dashboard-card">
+                      <h3>Map</h3>
+                      <label className="checkbox-inline" style={{ marginBottom: 16 }}>
+                        <input type="checkbox" checked={Boolean(eventDraft.mapEnabled)} onChange={(e) => setEventDraft((c) => ({ ...c, mapEnabled: e.target.checked }))} />
+                        Show map on event page
+                      </label>
+                      {eventDraft.mapEnabled ? (
+                        <>
+                          <div className="form-field field-inline-2">
+                            <div className="form-field"><label className="form-label">Latitude</label><input className="form-input" type="number" step="0.0001" value={eventDraft.mapLat} onChange={(e) => setEventDraft((c) => ({ ...c, mapLat: Number(e.target.value) }))} /></div>
+                            <div className="form-field"><label className="form-label">Longitude</label><input className="form-input" type="number" step="0.0001" value={eventDraft.mapLng} onChange={(e) => setEventDraft((c) => ({ ...c, mapLng: Number(e.target.value) }))} /></div>
+                          </div>
+                          <div className="form-field"><label className="form-label">Address (shown on map)</label><input className="form-input" value={eventDraft.mapAddress} onChange={(e) => setEventDraft((c) => ({ ...c, mapAddress: e.target.value }))} onBlur={() => resolveEventMapAddress(eventDraft.mapAddress)} /></div>
+                          <div className="page-sub" style={{ marginTop: '-6px', marginBottom: 12 }}>
+                            {isGeocoding ? 'Resolving address...' : 'Enter the event address first. Coordinates are filled automatically, and you can still override them manually.'}
+                          </div>
+                          <button type="button" className="btn-secondary" style={{ fontSize: '0.78rem' }} onClick={() => setEventDraft((c) => ({ ...c, mapLat: DEFAULT_MAP_LAT, mapLng: DEFAULT_MAP_LNG, mapAddress: DEFAULT_MAP_ADDRESS }))}>Reset to House of Starts</button>
+                        </>
+                      ) : null}
+                    </div>
+                    <div className="form-field">
+                      <label className="form-label">Registration form</label>
+                      <select className="form-select" value={eventDraft.registrationMode || 'default'} onChange={(e) => setEventDraft((c) => ({ ...c, registrationMode: e.target.value }))}>
+                        <option value="default">Use default form</option>
+                        <option value="custom">Use custom form</option>
+                      </select>
+                    </div>
+                    {eventDraft.registrationMode === 'custom' ? (
+                      <div className="dashboard-card">
+                        <h3>Custom event form</h3>
+                        <div className="form-field"><label className="form-label">Form title</label><input className="form-input" value={eventCustomSchema.title || ''} onChange={(e) => setEventCustomSchema((c) => ({ ...c, title: e.target.value }))} /></div>
+                        <FieldBuilder schema={eventCustomSchema} onChange={setEventCustomSchema} />
+                      </div>
+                    ) : null}
+                    <div className="admin-inline-actions">
+                      <button type="submit" className="btn-primary" disabled={isSaving}>{isSaving ? 'Saving...' : eventDraft.id ? 'Update Event' : 'Save Event'}</button>
+                      {eventDraft.id ? <button type="button" className="btn-secondary" onClick={() => { setEventDraft(emptyEventDraft()); setEventCustomSchema(schemaFromEvent(emptyEventDraft())); }}>Clear</button> : null}
+                    </div>
+                  </form>
+
+                  <div className="dashboard-card">
+                    <div className="admin-inline-actions admin-inline-actions-wrap">
+                      <div>
+                        <h3>Home spotlight</h3>
+                        <p className="page-sub" style={{ marginTop: 8 }}>
+                          Choose up to two published ongoing or upcoming events to feature on the home page. If a selected event becomes invalid later, the home page auto-fills from the next eligible events.
+                        </p>
+                      </div>
+                      <button type="button" className="btn-secondary" onClick={openSpotlightModal}>
+                        Curate Home Events
+                      </button>
+                    </div>
+
+                    <div className="admin-list">
+                      {resolvedSpotlightEvents.map((item) => (
+                        <div className="admin-list-row admin-check-row" key={item.id}>
+                          <div>
+                            <strong>{item.title}</strong>
+                            <p style={{ margin: '6px 0 0', color: 'var(--gray-2)', fontSize: '0.84rem' }}>
+                              {formatEventStatusLabel(item)} · {item.dateDisplay || 'Date not set'} · {item.location || 'Location not set'}
+                            </p>
+                          </div>
+                          <span>{homeSpotlightIds.includes(item.id) ? 'Admin selected' : 'Auto-filled'}</span>
+                        </div>
+                      ))}
+                      {!resolvedSpotlightEvents.length ? <div className="empty-state">No eligible published upcoming or ongoing events yet.</div> : null}
+                    </div>
+                  </div>
+
+                  <div className="dashboard-card">
+                    <h3>Current events</h3>
+                    <div className="admin-list">
+                      {sortedEvents.map((item) => (
+                        <button type="button" className="admin-list-row" key={item.id} onClick={() => selectEvent(item)}>
+                          <span>{item.title}</span>
+                          <span>{formatEventStatusLabel(item)}</span>
+                        </button>
+                      ))}
+                      {!sortedEvents.length ? <div className="empty-state">No events yet. Create one above.</div> : null}
+                    </div>
+                  </div>
+
+                  {spotlightModalOpen ? (
+                    <div className="admin-modal-backdrop" onClick={closeSpotlightModal}>
+                      <div className="admin-modal-card" onClick={(event) => event.stopPropagation()}>
+                        <div className="admin-modal-head">
+                          <div>
+                            <p className="section-label">Home Spotlight</p>
+                            <h3>Select up to two events</h3>
+                          </div>
+                          <button type="button" className="auth-link" onClick={closeSpotlightModal}>Close</button>
+                        </div>
+                        <p className="page-sub">Only published upcoming or ongoing events appear here.</p>
+
+                        {spotlightSelectionError ? <div className="form-error" style={{ display: 'block' }}>{spotlightSelectionError}</div> : null}
+
+                        <div className="admin-list">
+                          {eligibleSpotlightEvents.map((item) => (
+                            <label className="admin-list-row admin-check-row" key={item.id}>
+                              <div>
+                                <strong>{item.title}</strong>
+                                <p style={{ margin: '6px 0 0', color: 'var(--gray-2)', fontSize: '0.84rem' }}>
+                                  {formatEventStatusLabel(item)} · {item.dateDisplay || 'Date not set'} · {item.location || 'Location not set'}
+                                </p>
+                              </div>
+                              <input
+                                type="checkbox"
+                                checked={spotlightDraftIds.includes(item.id)}
+                                onChange={() => toggleSpotlightSelection(item.id)}
+                              />
+                            </label>
+                          ))}
+                          {!eligibleSpotlightEvents.length ? <div className="empty-state">No eligible events available right now.</div> : null}
+                        </div>
+
+                        <div className="admin-inline-actions">
+                          <button type="button" className="btn-secondary" onClick={closeSpotlightModal}>Cancel</button>
+                          <button type="button" className="btn-primary" disabled={isSaving} onClick={handleSaveHomeSpotlight}>
+                            {isSaving ? 'Saving...' : 'Save Spotlight'}
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  ) : null}
+                </>
+              ) : null}
+
+              {eventsSubTab === 'registrations' ? (
+                <div className="dashboard-card">
                   <div className="admin-inline-actions">
-                    <select className="form-select" value={selectedEventExportId} onChange={(e) => setSelectedEventExportId(e.target.value)}>
-                      <option value="">All events</option>
-                      {sortedEvents.map((item) => <option key={item.id} value={item.id}>{item.title} ({formatEventStatusLabel(item)})</option>)}
-                    </select>
-                    <button type="button" className="btn-secondary" onClick={() => handleExport('csv', selectedEventExportId)}>CSV</button>
-                    <button type="button" className="btn-secondary" onClick={() => handleExport('xlsx', selectedEventExportId)}>XLSX</button>
-                    <button type="button" className="btn-secondary" onClick={() => handleExport('json', selectedEventExportId)}>JSON</button>
+                    <h3>Registrations</h3>
+                    <div className="admin-inline-actions">
+                      <select className="form-select" value={selectedEventExportId} onChange={(e) => setSelectedEventExportId(e.target.value)}>
+                        <option value="">All events</option>
+                        {sortedEvents.map((item) => <option key={item.id} value={item.id}>{item.title} ({formatEventStatusLabel(item)})</option>)}
+                      </select>
+                      <button type="button" className="btn-secondary" onClick={() => handleExport('csv', selectedEventExportId)}>CSV</button>
+                      <button type="button" className="btn-secondary" onClick={() => handleExport('xlsx', selectedEventExportId)}>XLSX</button>
+                      <button type="button" className="btn-secondary" onClick={() => handleExport('json', selectedEventExportId)}>JSON</button>
+                    </div>
+                  </div>
+                  <div className="admin-table">
+                    {registrations
+                      .filter((item) => !selectedEventExportId || item.eventId === selectedEventExportId)
+                      .map((item) => (
+                        <div className="admin-table-row" key={item.id}>
+                          <div><strong>{item.name || item.answers?.name || 'Unnamed'}</strong><p>{item.email || item.answers?.email}</p><p>{item.registrationId}</p></div>
+                          <div>{item.eventTitle}</div>
+                          <select className="form-select" value={item.reviewStatus || 'pending'} onChange={(e) => patchStatus('eventRegistrations', item.id, e.target.value)}>
+                            <option value="pending">pending</option>
+                            <option value="shortlisted">shortlisted</option>
+                            <option value="accepted">accepted</option>
+                            <option value="rejected">rejected</option>
+                          </select>
+                        </div>
+                      ))}
+                    {!registrations.filter((item) => !selectedEventExportId || item.eventId === selectedEventExportId).length ? (
+                      <div className="empty-state">No registrations yet.</div>
+                    ) : null}
                   </div>
                 </div>
-                <div className="admin-table">
-                  {registrations
-                    .filter((item) => !selectedEventExportId || item.eventId === selectedEventExportId)
-                    .map((item) => (
+              ) : null}
+            </div>
+          ) : null}
+
+          {/* NODE LEAD */}
+          {tab === 'node-lead' ? (
+            <div className="admin-section">
+              <SubNav
+                items={[
+                  { key: 'applications', label: `Applications${nodeLeads.length ? ` (${nodeLeads.length})` : ''}` },
+                  { key: 'form-builder', label: 'Form Builder' },
+                ]}
+                active={nodeLeadSubTab}
+                onChange={setNodeLeadSubTab}
+              />
+
+              {nodeLeadSubTab === 'applications' ? (
+                <div className="dashboard-card">
+                  <div className="admin-inline-actions">
+                    <h3>Node Lead submissions</h3>
+                    <div className="admin-inline-actions">
+                      <button type="button" className="btn-secondary" onClick={() => handleNodeLeadExport('csv')}>CSV</button>
+                      <button type="button" className="btn-secondary" onClick={() => handleNodeLeadExport('xlsx')}>XLSX</button>
+                      <button type="button" className="btn-secondary" onClick={() => handleNodeLeadExport('json')}>JSON</button>
+                    </div>
+                  </div>
+                  <div className="admin-table">
+                    {nodeLeads.map((item) => (
                       <div className="admin-table-row" key={item.id}>
-                        <div><strong>{item.name || item.answers?.name || 'Unnamed'}</strong><p>{item.email || item.answers?.email}</p><p>{item.registrationId}</p></div>
-                        <div>{item.eventTitle}</div>
-                        <select className="form-select" value={item.reviewStatus || 'pending'} onChange={(e) => patchStatus('eventRegistrations', item.id, e.target.value)}>
+                        <div><strong>{item.name || item.answers?.name || 'Unnamed'}</strong><p>{item.email || item.answers?.email}</p></div>
+                        <div>{item.reviewStatus}</div>
+                        <select className="form-select" value={item.reviewStatus || 'pending'} onChange={(e) => patchStatus('nodeLeadApplications', item.id, e.target.value)}>
                           <option value="pending">pending</option>
                           <option value="shortlisted">shortlisted</option>
                           <option value="accepted">accepted</option>
@@ -623,171 +1074,171 @@ export default function AdminPage() {
                         </select>
                       </div>
                     ))}
-                  {!registrations.filter((item) => !selectedEventExportId || item.eventId === selectedEventExportId).length ? (
-                    <div className="empty-state">No registrations yet.</div>
-                  ) : null}
-                </div>
-              </div>
-
-              <div className="dashboard-card">
-                <h3>Current events</h3>
-                <div className="admin-list">
-                  {sortedEvents.map((item) => (
-                    <button type="button" className="admin-list-row" key={item.id} onClick={() => selectEvent(item)}>
-                      <span>{item.title}</span>
-                      <span>{formatEventStatusLabel(item)}</span>
-                    </button>
-                  ))}
-                  {!sortedEvents.length ? <div className="empty-state">No events yet. Create one above.</div> : null}
-                </div>
-              </div>
-            </div>
-          ) : null}
-
-          {tab === 'node-lead' ? (
-            <div className="admin-section">
-              <form className="form-card" onSubmit={handleSaveNodeLeadSchema}>
-                <h3>Node Lead form</h3>
-                <div className="form-field">
-                  <label className="form-label">Form mode</label>
-                  <select className="form-select" value={nodeLeadMode} onChange={(e) => setNodeLeadMode(e.target.value)}>
-                    <option value="default">Use default form</option>
-                    <option value="custom">Use custom form</option>
-                  </select>
-                </div>
-                {nodeLeadMode === 'custom' ? (
-                  <>
-                    <div className="form-field"><label className="form-label">Form title</label><input className="form-input" value={nodeLeadSchema.title || ''} onChange={(e) => setNodeLeadSchema((c) => ({ ...c, title: e.target.value }))} /></div>
-                    <FieldBuilder schema={nodeLeadSchema} onChange={setNodeLeadSchema} />
-                  </>
-                ) : (
-                  <div className="dashboard-card"><p>Default Node Lead form is active.</p></div>
-                )}
-                <button type="submit" className="btn-primary" disabled={isSaving}>{isSaving ? 'Saving...' : 'Save Node Lead Form'}</button>
-              </form>
-
-              <div className="dashboard-card">
-                <div className="admin-inline-actions">
-                  <h3>Node Lead submissions</h3>
-                  <div className="admin-inline-actions">
-                    <button type="button" className="btn-secondary" onClick={() => handleNodeLeadExport('csv')}>CSV</button>
-                    <button type="button" className="btn-secondary" onClick={() => handleNodeLeadExport('xlsx')}>XLSX</button>
-                    <button type="button" className="btn-secondary" onClick={() => handleNodeLeadExport('json')}>JSON</button>
+                    {!nodeLeads.length ? <div className="empty-state">No Node Lead applications yet.</div> : null}
                   </div>
                 </div>
-                <div className="admin-table">
-                  {nodeLeads.map((item) => (
-                    <div className="admin-table-row" key={item.id}>
-                      <div><strong>{item.name || item.answers?.name || 'Unnamed'}</strong><p>{item.email || item.answers?.email}</p></div>
-                      <div>{item.reviewStatus}</div>
-                      <select className="form-select" value={item.reviewStatus || 'pending'} onChange={(e) => patchStatus('nodeLeadApplications', item.id, e.target.value)}>
-                        <option value="pending">pending</option>
-                        <option value="shortlisted">shortlisted</option>
-                        <option value="accepted">accepted</option>
-                        <option value="rejected">rejected</option>
-                      </select>
-                    </div>
-                  ))}
-                  {!nodeLeads.length ? <div className="empty-state">No Node Lead applications yet.</div> : null}
-                </div>
-              </div>
+              ) : null}
+
+              {nodeLeadSubTab === 'form-builder' ? (
+                <form className="form-card" onSubmit={handleSaveNodeLeadSchema}>
+                  <h3>Node Lead form</h3>
+                  <div className="form-field">
+                    <label className="form-label">Form mode</label>
+                    <select className="form-select" value={nodeLeadMode} onChange={(e) => setNodeLeadMode(e.target.value)}>
+                      <option value="default">Use default form</option>
+                      <option value="custom">Use custom form</option>
+                    </select>
+                  </div>
+                  {nodeLeadMode === 'custom' ? (
+                    <>
+                      <div className="form-field"><label className="form-label">Form title</label><input className="form-input" value={nodeLeadSchema.title || ''} onChange={(e) => setNodeLeadSchema((c) => ({ ...c, title: e.target.value }))} /></div>
+                      <FieldBuilder schema={nodeLeadSchema} onChange={setNodeLeadSchema} />
+                    </>
+                  ) : (
+                    <div className="dashboard-card"><p>Default Node Lead form is active.</p></div>
+                  )}
+                  <button type="submit" className="btn-primary" disabled={isSaving}>{isSaving ? 'Saving...' : 'Save Node Lead Form'}</button>
+                </form>
+              ) : null}
             </div>
           ) : null}
 
+          {/* UPDATES */}
           {tab === 'updates' ? (
             <div className="admin-section">
-              <form className="form-card" onSubmit={handleSaveUpdate}>
-                <h3>Create or update post</h3>
-                <div className="form-field"><label className="form-label">Title</label><input className="form-input" value={updateDraft.title} onChange={(e) => setUpdateDraft((c) => ({ ...c, title: e.target.value }))} /></div>
-                <div className="form-field"><label className="form-label">Slug</label><input className="form-input" value={updateDraft.slug} onChange={(e) => setUpdateDraft((c) => ({ ...c, slug: e.target.value }))} /></div>
-                <div className="form-field"><label className="form-label">Excerpt</label><textarea className="form-textarea" value={updateDraft.excerpt} onChange={(e) => setUpdateDraft((c) => ({ ...c, excerpt: e.target.value }))} /></div>
-                <div className="form-field">
-                  <label className="form-label">Body</label>
-                  <RichTextEditor value={updateDraft.bodyHtml} onChange={(value) => setUpdateDraft((c) => ({ ...c, bodyHtml: value }))} />
-                  <input type="file" accept=".txt,.docx" onChange={(e) => e.target.files?.[0] && handleImportIntoUpdate(e.target.files[0])} />
-                </div>
-                <div className="form-field field-inline-2">
-                  <div className="form-field"><label className="form-label">Category</label><select className="form-select" value={updateDraft.category} onChange={(e) => setUpdateDraft((c) => ({ ...c, category: e.target.value }))}>{UPDATE_CATEGORIES.map((category) => <option key={category} value={category}>{category}</option>)}</select></div>
-                  <div className="form-field"><label className="form-label">Comment mode</label><select className="form-select" value={updateDraft.commentMode} onChange={(e) => setUpdateDraft((c) => ({ ...c, commentMode: e.target.value }))}><option value="disabled">disabled</option><option value="auto-publish">auto-publish</option><option value="moderated">moderated</option></select></div>
-                </div>
-                <div className="form-field field-inline-2">
-                  <div className="form-field"><label className="form-label">Update scope</label><select className="form-select" value={updateDraft.scope || 'general'} onChange={(e) => setUpdateDraft((c) => ({ ...c, scope: e.target.value, eventId: e.target.value === 'event' ? c.eventId : '' }))}><option value="general">general</option><option value="event">event-specific</option></select></div>
-                  {updateDraft.scope === 'event' ? (
-                    <div className="form-field"><label className="form-label">Event</label><select className="form-select" value={updateDraft.eventId || ''} onChange={(e) => setUpdateDraft((c) => ({ ...c, eventId: e.target.value }))}><option value="">Select event</option>{sortedEvents.map((item) => <option key={item.id} value={item.id}>{item.title} ({formatEventStatusLabel(item)})</option>)}</select></div>
-                  ) : <div />}
-                </div>
-                <div className="form-field field-inline-2">
-                  <div className="form-field"><label className="form-label">Publish state</label><select className="form-select" value={updateDraft.publishState} onChange={(e) => setUpdateDraft((c) => ({ ...c, publishState: e.target.value }))}><option value="draft">draft</option><option value="published">published</option></select></div>
-                  <div className="form-field"><label className="form-label">Author</label><input className="form-input" value={updateDraft.authorName} onChange={(e) => setUpdateDraft((c) => ({ ...c, authorName: e.target.value }))} /></div>
-                </div>
-                <button type="submit" className="btn-primary" disabled={isSaving}>{isSaving ? 'Saving...' : 'Save Update'}</button>
-              </form>
+              <SubNav
+                items={[
+                  { key: 'posts', label: 'Posts' },
+                  { key: 'comments', label: `Comments${comments.length ? ` (${comments.length})` : ''}` },
+                ]}
+                active={updatesSubTab}
+                onChange={setUpdatesSubTab}
+              />
 
-              <div className="dashboard-card">
-                <h3>Posts</h3>
-                <div className="admin-list">
-                  {!updates.length ? <div className="empty-state">No posts yet. Create one above.</div> : null}
-                  {updates.map((post) => (
-                    <div className="admin-list-row" key={post.id}>
-                      <button type="button" onClick={() => setUpdateDraft({ ...post, scope: post.scope || 'general', eventId: post.eventId || '', bodyHtml: post.bodyHtml || (post.body || []).map((paragraph) => `<p>${paragraph}</p>`).join('') })}>{post.title}</button>
-                      <button type="button" className="auth-link" onClick={() => {
-                        if (!window.confirm(`Delete "${post.title}"? This cannot be undone.`)) return;
-                        deleteDocument('updates', post.id).then(refreshAll).catch((e) => setError(e?.message || 'Could not delete post.'));
-                      }}>Delete</button>
+              {updatesSubTab === 'posts' ? (
+                <>
+                  <form className="form-card" onSubmit={handleSaveUpdate}>
+                    <h3>{updateDraft.id ? 'Edit post' : 'Create post'}</h3>
+                    <div className="form-field"><label className="form-label">Title</label><input className="form-input" value={updateDraft.title} onChange={(e) => setUpdateDraft((c) => ({ ...c, title: e.target.value }))} /></div>
+                    <div className="form-field"><label className="form-label">Slug</label><input className="form-input" value={updateDraft.slug} onChange={(e) => setUpdateDraft((c) => ({ ...c, slug: e.target.value }))} /></div>
+                    <div className="form-field"><label className="form-label">Excerpt</label><textarea className="form-textarea" value={updateDraft.excerpt} onChange={(e) => setUpdateDraft((c) => ({ ...c, excerpt: e.target.value }))} /></div>
+                    <div className="form-field">
+                      <label className="form-label">Body</label>
+                      <RichTextEditor value={updateDraft.bodyHtml} onChange={(value) => setUpdateDraft((c) => ({ ...c, bodyHtml: value }))} />
+                      <input type="file" accept=".txt,.docx" onChange={(e) => e.target.files?.[0] && handleImportIntoUpdate(e.target.files[0])} />
                     </div>
-                  ))}
-                </div>
-              </div>
-            </div>
-          ) : null}
-
-          {tab === 'comments' ? (
-            <div className="admin-section">
-              <div className="dashboard-card">
-                <div className="admin-inline-actions">
-                  <h3>Comment inbox</h3>
-                  <select className="form-select" value={selectedUpdateId} onChange={(e) => setSelectedUpdateId(e.target.value)}>
-                    <option value="">All updates</option>
-                    {updates.map((post) => <option key={post.id} value={post.id}>{post.title}</option>)}
-                  </select>
-                </div>
-                <div className="admin-table">
-                  {selectedUpdateComments.map((item) => {
-                    const update = updateLookup[item.updateId];
-                    const updatePublished = update?.publishedAt ? new Date(update.publishedAt).toLocaleString() : 'Draft or fallback';
-                    const commentCreated = typeof item.createdAt?.toDate === 'function'
-                      ? item.createdAt.toDate().toLocaleString()
-                      : item.createdAt
-                        ? new Date(item.createdAt).toLocaleString()
-                        : 'Unknown time';
-                    return (
-                      <div className="admin-table-row admin-comment-row" key={item.id}>
-                        <div>
-                          <strong>{update?.title || item.updateSlug || 'Update'}</strong>
-                          <p>Update published: {updatePublished}</p>
-                          <p>Comment by {item.authorName || item.authorEmail || 'Member'}{item.authorEmail ? ` · ${item.authorEmail}` : ''}</p>
-                          <p>Commented: {commentCreated}</p>
-                          <p>{item.body}</p>
+                    <div className="form-field field-inline-2">
+                      <div className="form-field"><label className="form-label">Category</label><select className="form-select" value={updateDraft.category} onChange={(e) => setUpdateDraft((c) => ({ ...c, category: e.target.value }))}>{UPDATE_CATEGORIES.map((category) => <option key={category} value={category}>{category}</option>)}</select></div>
+                      <div className="form-field"><label className="form-label">Comment mode</label><select className="form-select" value={updateDraft.commentMode} onChange={(e) => setUpdateDraft((c) => ({ ...c, commentMode: e.target.value }))}><option value="disabled">disabled</option><option value="auto-publish">auto-publish</option><option value="moderated">moderated</option></select></div>
+                    </div>
+                    <div className="form-field field-inline-2">
+                      <div className="form-field"><label className="form-label">Scope</label><select className="form-select" value={updateDraft.scope || 'general'} onChange={(e) => setUpdateDraft((c) => ({ ...c, scope: e.target.value, eventId: e.target.value === 'event' ? c.eventId : '' }))}><option value="general">general</option><option value="event">event-specific</option></select></div>
+                      {updateDraft.scope === 'event' ? (
+                        <div className="form-field"><label className="form-label">Event</label><select className="form-select" value={updateDraft.eventId || ''} onChange={(e) => setUpdateDraft((c) => ({ ...c, eventId: e.target.value }))}><option value="">Select event</option>{sortedEvents.map((item) => <option key={item.id} value={item.id}>{item.title} ({formatEventStatusLabel(item)})</option>)}</select></div>
+                      ) : <div />}
+                    </div>
+                    <div className="form-field field-inline-2">
+                      <div className="form-field"><label className="form-label">Publish state</label><select className="form-select" value={updateDraft.publishState} onChange={(e) => setUpdateDraft((c) => ({ ...c, publishState: e.target.value }))}><option value="draft">draft</option><option value="published">published</option></select></div>
+                      <div className="form-field"><label className="form-label">Author</label><input className="form-input" value={updateDraft.authorName} onChange={(e) => setUpdateDraft((c) => ({ ...c, authorName: e.target.value }))} /></div>
+                    </div>
+                    <div className="form-field">
+                      <label className="form-label">Attachments</label>
+                      <input
+                        type="file"
+                        multiple
+                        accept="image/*,video/*,.pdf,.docx,.doc,.txt,.xlsx,.csv,.zip"
+                        disabled={isUploadingAttachment}
+                        onChange={(e) => handleAttachmentUpload(e.target.files)}
+                      />
+                      {isUploadingAttachment ? <p className="attachment-uploading">Uploading...</p> : null}
+                      {(updateDraft.attachments || []).length ? (
+                        <div className="attachment-admin-list">
+                          {(updateDraft.attachments || []).map((att) => (
+                            <div className="attachment-admin-row" key={att.id}>
+                              <span className="attachment-admin-name" title={att.name}>{att.name}</span>
+                              <span className="attachment-admin-size">{att.mimeType?.split('/').pop()?.toUpperCase()}</span>
+                              <label className="checkbox-inline">
+                                <input type="checkbox" checked={Boolean(att.downloadable)} onChange={() => toggleAttachmentDownloadable(att.id)} />
+                                Downloadable
+                              </label>
+                              <button type="button" className="auth-link" onClick={() => removeAttachment(att.id)}>Remove</button>
+                            </div>
+                          ))}
                         </div>
-                        <div>{item.status || 'pending'}</div>
-                        <select className="form-select" value={item.status || 'pending'} onChange={(e) => patchStatus('comments', item.id, e.target.value)}>
-                          <option value="pending">pending</option>
-                          <option value="approved">approved</option>
-                          <option value="rejected">rejected</option>
-                        </select>
-                      </div>
-                    );
-                  })}
-                  {!selectedUpdateComments.length ? <div className="empty-state">No comments in this view yet.</div> : null}
+                      ) : null}
+                    </div>
+                    <div className="admin-inline-actions">
+                      <button type="submit" className="btn-primary" disabled={isSaving || isUploadingAttachment}>{isSaving ? 'Saving...' : updateDraft.id ? 'Update Post' : 'Save Post'}</button>
+                      {updateDraft.id ? <button type="button" className="btn-secondary" onClick={() => setUpdateDraft({ id: '', title: '', slug: '', excerpt: '', bodyHtml: '', category: 'update', commentMode: 'moderated', publishState: 'draft', authorName: 'AI Unplugged Team', scope: 'general', eventId: '', attachments: [] })}>Clear</button> : null}
+                    </div>
+                  </form>
+
+                  <div className="dashboard-card">
+                    <h3>Posts</h3>
+                    <div className="admin-list">
+                      {!updates.length ? <div className="empty-state">No posts yet. Create one above.</div> : null}
+                      {updates.map((post) => (
+                        <div className="admin-list-row" key={post.id}>
+                          <button type="button" onClick={() => setUpdateDraft({ ...post, scope: post.scope || 'general', eventId: post.eventId || '', attachments: post.attachments || [], bodyHtml: post.bodyHtml || (post.body || []).map((paragraph) => `<p>${paragraph}</p>`).join('') })}>{post.title}</button>
+                          <button type="button" className="auth-link" onClick={() => {
+                            if (!window.confirm(`Delete "${post.title}"? This cannot be undone.`)) return;
+                            deleteDocument('updates', post.id).then(refreshAll).catch((e) => setError(e?.message || 'Could not delete post.'));
+                          }}>Delete</button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </>
+              ) : null}
+
+              {updatesSubTab === 'comments' ? (
+                <div className="dashboard-card">
+                  <div className="admin-inline-actions">
+                    <h3>Comment inbox</h3>
+                    <select className="form-select" value={selectedUpdateId} onChange={(e) => setSelectedUpdateId(e.target.value)}>
+                      <option value="">All updates</option>
+                      {updates.map((post) => <option key={post.id} value={post.id}>{post.title}</option>)}
+                    </select>
+                  </div>
+                  <div className="admin-table">
+                    {selectedUpdateComments.map((item) => {
+                      const update = updateLookup[item.updateId];
+                      const updatePublished = update?.publishedAt ? new Date(update.publishedAt).toLocaleString() : 'Draft or fallback';
+                      const commentCreated = typeof item.createdAt?.toDate === 'function'
+                        ? item.createdAt.toDate().toLocaleString()
+                        : item.createdAt
+                          ? new Date(item.createdAt).toLocaleString()
+                          : 'Unknown time';
+                      return (
+                        <div className="admin-table-row admin-comment-row" key={item.id}>
+                          <div>
+                            <strong>{update?.title || item.updateSlug || 'Update'}</strong>
+                            <p>Update published: {updatePublished}</p>
+                            <p>Comment by {item.authorName || item.authorEmail || 'Member'}{item.authorEmail ? ` · ${item.authorEmail}` : ''}</p>
+                            <p>Commented: {commentCreated}</p>
+                            <p>{item.body}</p>
+                          </div>
+                          <div>{item.status || 'pending'}</div>
+                          <select className="form-select" value={item.status || 'pending'} onChange={(e) => patchStatus('comments', item.id, e.target.value)}>
+                            <option value="pending">pending</option>
+                            <option value="approved">approved</option>
+                            <option value="rejected">rejected</option>
+                          </select>
+                        </div>
+                      );
+                    })}
+                    {!selectedUpdateComments.length ? <div className="empty-state">No comments in this view yet.</div> : null}
+                  </div>
                 </div>
-              </div>
+              ) : null}
             </div>
           ) : null}
 
+          {/* NEWSLETTER */}
           {tab === 'newsletter' ? (
             <div className="admin-section">
               <form className="form-card" onSubmit={handleSendCampaign}>
-                <h3>Send newsletter / update</h3>
+                <h3>Send newsletter</h3>
                 <div className="form-field"><label className="form-label">Subject</label><input className="form-input" value={newsletterDraft.subject} onChange={(e) => setNewsletterDraft((c) => ({ ...c, subject: e.target.value }))} /></div>
                 <div className="form-field">
                   <label className="form-label">Body</label>
@@ -818,6 +1269,35 @@ export default function AdminPage() {
             </div>
           ) : null}
 
+          {/* PROFILE */}
+          {tab === 'profile' ? (
+            <div className="admin-section">
+              <div className="dashboard-card profile-card">
+                <p className="section-label">Admin profile</p>
+                <h3>{profile?.displayName || user?.displayName || user?.email || 'Admin'}</h3>
+                <p className="page-sub">Manage the current admin account here. This section only affects your own settings, not other admins.</p>
+                <div className="admin-kv-list">
+                  <div className="detail-row"><span className="label">Email</span><span className="val">{user?.email || 'Unknown'}</span></div>
+                  <div className="detail-row"><span className="label">Role</span><span className="val">{profile?.role || 'admin'}</span></div>
+                  <div className="detail-row"><span className="label">Newsletter</span><span className="val">{profile?.newsletterSubscribed ? 'subscribed' : 'unsubscribed'}</span></div>
+                </div>
+                <p className="page-sub profile-note">Event notices, platform updates, and campaign emails sent to your own admin account can be managed here.</p>
+                <div className="admin-quick-actions profile-actions">
+                  {profile?.newsletterSubscribed ? (
+                    <button type="button" className="btn-secondary" disabled={profileSaving} onClick={() => handleProfileNewsletterChange(false)}>
+                      Unsubscribe
+                    </button>
+                  ) : (
+                    <button type="button" className="btn-primary" disabled={profileSaving} onClick={() => handleProfileNewsletterChange(true)}>
+                      Resubscribe
+                    </button>
+                  )}
+                </div>
+              </div>
+            </div>
+          ) : null}
+
+          {/* ADMINS */}
           {tab === 'admins' ? (
             <div className="admin-section">
               <form className="form-card" onSubmit={handleGrantAdmin}>

@@ -36,6 +36,7 @@ const mailProvider = createBrevoProvider({
   senderName: process.env.BREVO_SENDER_NAME || 'AI Unplugged'
 });
 const SERVER_VERSION = `local-${Math.floor(Date.now() / 1000)}`;
+const geocodeCache = new Map();
 
 const MIME_TYPES = {
   '.html': 'text/html; charset=utf-8',
@@ -210,6 +211,90 @@ function slugify(value) {
     .replace(/^-+|-+$/g, '');
 }
 
+function escapeHtml(value) {
+  return String(value || '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+function normalizeMapAddress(event) {
+  return String(event?.mapAddress || event?.location || '').trim();
+}
+
+function buildMapLink(event) {
+  const lat = Number(event?.mapLat);
+  const lng = Number(event?.mapLng);
+  if (Number.isFinite(lat) && Number.isFinite(lng)) {
+    return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(`${lat},${lng}`)}`;
+  }
+  const address = normalizeMapAddress(event);
+  return address ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(address)}` : '';
+}
+
+async function geocodeAddress(address) {
+  const normalized = String(address || '').trim();
+  if (!normalized) throw new HttpError(400, 'Address is required.');
+
+  const cacheKey = normalized.toLowerCase();
+  if (geocodeCache.has(cacheKey)) return geocodeCache.get(cacheKey);
+
+  const url = `https://nominatim.openstreetmap.org/search?format=jsonv2&limit=1&q=${encodeURIComponent(normalized)}`;
+  const response = await fetch(url, {
+    headers: {
+      'User-Agent': 'AI-Unplugged/1.0 (local geocoder)',
+      Accept: 'application/json'
+    }
+  });
+
+  if (!response.ok) {
+    throw new HttpError(502, 'Address lookup failed. Please try again.');
+  }
+
+  const results = await response.json();
+  if (!Array.isArray(results) || !results.length) {
+    throw new HttpError(404, 'Could not resolve that address. Try a more specific location.');
+  }
+
+  const match = results[0];
+  const resolved = {
+    address: match.display_name || normalized,
+    lat: Number(match.lat),
+    lng: Number(match.lon),
+    mapLink: `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(match.display_name || normalized)}`
+  };
+  geocodeCache.set(cacheKey, resolved);
+  return resolved;
+}
+
+async function handleProfileNewsletter(req, res) {
+  requireDb();
+  const authContext = await getAuthContext(req);
+  const payload = await readJson(req);
+  const subscribed = payload?.subscribed !== false;
+  const now = admin.firestore.FieldValue.serverTimestamp();
+  const email = String(authContext.token.email || '').trim();
+
+  await db.collection('users').doc(authContext.uid).set({
+    email,
+    newsletterSubscribed: subscribed,
+    updatedAt: now
+  }, { merge: true });
+
+  if (email) {
+    await db.collection('newsletterSubscribers').doc(slugify(email)).set({
+      email,
+      status: subscribed ? 'subscribed' : 'unsubscribed',
+      userId: authContext.uid,
+      updatedAt: now,
+      createdAt: now
+    }, { merge: true });
+  }
+
+  sendJson(res, 200, { ok: true, subscribed });
+}
+
 function normalizeFieldValue(field, raw) {
   if (field.type === 'checkbox') return Boolean(raw);
   if (field.type === 'number') return raw === '' || raw == null ? '' : Number(raw);
@@ -329,10 +414,6 @@ async function getAuthContext(req, { optional = false } = {}) {
 async function requireAdminAuth(req) {
   const authContext = await getAuthContext(req);
   if (authContext.token.admin === true) return authContext;
-
-  const userDoc = await db.collection('users').doc(authContext.uid).get();
-  if (userDoc.exists && userDoc.data().role === 'admin') return authContext;
-
   throw new HttpError(403, 'Admin access required.');
 }
 
@@ -603,11 +684,23 @@ async function handleEventRegistration(req, res) {
       createdAt: now
     }, { merge: true });
 
+    const safeTitle = escapeHtml(event.title || '');
+    const safeId = escapeHtml(registrationId);
+    const displayAddress = normalizeMapAddress(event);
+    const mapLink = buildMapLink(event);
+    const safeAddress = escapeHtml(displayAddress);
+    const safeMapLink = escapeHtml(mapLink);
+    const htmlLocationBlock = displayAddress
+      ? `<p><strong>Location:</strong> ${safeAddress}</p>${mapLink ? `<p><a href="${safeMapLink}">Open directions</a></p>` : ''}`
+      : '';
+    const textLocationBlock = displayAddress
+      ? `\nLocation: ${displayAddress}${mapLink ? `\nDirections: ${mapLink}` : ''}`
+      : '';
     await mailProvider.sendTransactionalEmail({
       to: email,
       subject: `Registration confirmed: ${event.title}`,
-      html: `<p>Your registration for <strong>${event.title}</strong> is confirmed.</p><p>Your registration ID is <strong>${registrationId}</strong>.</p>`,
-      text: `Your registration for ${event.title} is confirmed. Registration ID: ${registrationId}`
+      html: `<p>Your registration for <strong>${safeTitle}</strong> is confirmed.</p><p>Your registration ID is <strong>${safeId}</strong>.</p>${htmlLocationBlock}`,
+      text: `Your registration for ${event.title} is confirmed. Registration ID: ${registrationId}${textLocationBlock}`
     });
   }
 
@@ -869,11 +962,12 @@ async function handleSyncCurrentUser(req, res) {
   const bootstrapApplied = await applyBootstrapAdminIfNeeded(userRecord);
 
   const profileRef = db.collection('users').doc(authContext.uid);
+  const existingProfile = await profileRef.get();
   await profileRef.set({
     email: userRecord.email || authContext.token.email || '',
     displayName: userRecord.displayName || authContext.token.name || '',
     role: bootstrapApplied || userRecord.customClaims?.admin === true ? 'admin' : 'user',
-    newsletterSubscribed: true,
+    newsletterSubscribed: existingProfile.exists ? existingProfile.data().newsletterSubscribed !== false : true,
     updatedAt: admin.firestore.FieldValue.serverTimestamp(),
     createdAt: admin.firestore.FieldValue.serverTimestamp()
   }, { merge: true });
@@ -940,6 +1034,14 @@ async function handleSetupStatus(req, res) {
   });
 }
 
+async function handleGeocode(req, res) {
+  requireDb();
+  await requireAdminAuth(req);
+  const payload = await readJson(req);
+  const result = await geocodeAddress(payload?.address || '');
+  sendJson(res, 200, { ok: true, ...result });
+}
+
 async function handleImportContent(req, res) {
   requireDb();
   await requireAdminAuth(req);
@@ -977,6 +1079,7 @@ async function handleSaveUpdate(req, res) {
     scope,
     eventId: scope === 'event' ? payload.eventId : null,
     eventTitle,
+    attachments: Array.isArray(payload.attachments) ? payload.attachments : [],
     updatedAt: now
   };
 
@@ -1025,7 +1128,7 @@ const server = http.createServer(async (req, res) => {
     '/index.html': '/',
     '/events.html': '/events',
     '/event.html': '/event',
-    '/apply.html': '/apply',
+    '/apply.html': '/attend',
     '/node-lead.html': '/node-lead',
     '/about.html': '/about',
     '/thank-you.html': '/thank-you'
@@ -1059,6 +1162,11 @@ const server = http.createServer(async (req, res) => {
 
     if (req.method === 'POST' && url.pathname === '/api/platform/comments') {
       await handleUpdateComment(req, res);
+      return;
+    }
+
+    if (req.method === 'POST' && url.pathname === '/api/platform/profile/newsletter') {
+      await handleProfileNewsletter(req, res);
       return;
     }
 
@@ -1114,6 +1222,11 @@ const server = http.createServer(async (req, res) => {
 
     if (req.method === 'GET' && url.pathname === '/api/platform/setup-status') {
       await handleSetupStatus(req, res);
+      return;
+    }
+
+    if (req.method === 'POST' && url.pathname === '/api/platform/geocode') {
+      await handleGeocode(req, res);
       return;
     }
 

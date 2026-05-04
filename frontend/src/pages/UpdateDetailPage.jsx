@@ -1,7 +1,39 @@
+import DOMPurify from 'dompurify';
 import { useEffect, useState } from 'react';
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
 import { useAuth } from '../context/useAuth';
 import { getCommentsForUpdate, getUpdateBySlug, submitUpdateComment } from '../lib/platform';
+
+function AttachmentItem({ att }) {
+  const isImage = att.mimeType?.startsWith('image/');
+  const isVideo = att.mimeType?.startsWith('video/');
+  const typeLabel = att.mimeType?.split('/').pop()?.toUpperCase() || 'FILE';
+
+  return (
+    <div className="attachment-item">
+      {isImage ? <img src={att.url} alt={att.name} className="attachment-image" /> : null}
+      {isVideo ? <video controls src={att.url} className="attachment-video" /> : null}
+      <div className="attachment-meta">
+        <div className="attachment-info">
+          <span className="attachment-name">{att.name}</span>
+          <span className="attachment-type">{typeLabel}</span>
+        </div>
+        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+          {!isImage && !isVideo ? (
+            <a href={att.url} target="_blank" rel="noopener noreferrer" className="btn-secondary attachment-download">
+              View
+            </a>
+          ) : null}
+          {att.downloadable ? (
+            <a href={att.url} download={att.name} className="btn-secondary attachment-download">
+              Download
+            </a>
+          ) : null}
+        </div>
+      </div>
+    </div>
+  );
+}
 
 export default function UpdateDetailPage() {
   const { slug } = useParams();
@@ -81,12 +113,20 @@ export default function UpdateDetailPage() {
         <div className="update-detail-grid">
           <div className="event-body-content">
             {update.bodyHtml ? (
-              <div dangerouslySetInnerHTML={{ __html: update.bodyHtml }} />
+              <div dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(update.bodyHtml) }} />
             ) : (
               (update.body || []).map((paragraph) => (
                 <p key={paragraph}>{paragraph}</p>
               ))
             )}
+            {update.attachments?.length ? (
+              <div className="update-attachments">
+                <p className="section-label">Attachments</p>
+                {update.attachments.map((att) => (
+                  <AttachmentItem key={att.id} att={att} />
+                ))}
+              </div>
+            ) : null}
           </div>
 
           <aside className="event-side-card">
