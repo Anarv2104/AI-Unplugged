@@ -27,7 +27,16 @@ import {
   updateReviewStatus
 } from '../lib/platform';
 
-const tabs = ['overview', 'events', 'node-lead', 'updates', 'comments', 'newsletter', 'admins'];
+const TAB_LABELS = {
+  overview: 'Overview',
+  events: 'Events',
+  'node-lead': 'Node Lead',
+  updates: 'Updates',
+  comments: 'Comments',
+  newsletter: 'Newsletter',
+  admins: 'Admins'
+};
+const tabs = Object.keys(TAB_LABELS);
 
 function baseNameField() {
   return {
@@ -171,6 +180,7 @@ export default function AdminPage() {
   const [setupStatus, setSetupStatus] = useState({ warnings: [], diagnostics: null, mailProvider: 'brevo' });
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
+  const [isSaving, setIsSaving] = useState(false);
 
   const [eventDraft, setEventDraft] = useState(emptyEventDraft());
   const [eventCustomSchema, setEventCustomSchema] = useState(schemaFromEvent(emptyEventDraft()));
@@ -244,6 +254,18 @@ export default function AdminPage() {
     setEventCustomSchema(schemaFromEvent(eventDraft));
   }, [eventDraft.id]);
 
+  useEffect(() => {
+    if (!message) return;
+    const timer = setTimeout(() => setMessage(''), 5000);
+    return () => clearTimeout(timer);
+  }, [message]);
+
+  useEffect(() => {
+    if (!error) return;
+    const timer = setTimeout(() => setError(''), 8000);
+    return () => clearTimeout(timer);
+  }, [error]);
+
   function resetMessages() {
     setMessage('');
     setError('');
@@ -259,6 +281,7 @@ export default function AdminPage() {
   async function handleSaveEvent(event) {
     event.preventDefault();
     resetMessages();
+    setIsSaving(true);
     try {
       let formId = '';
       if (eventDraft.registrationMode === 'custom') {
@@ -284,12 +307,15 @@ export default function AdminPage() {
       refreshAll();
     } catch (nextError) {
       setError(nextError?.message || 'Could not save event.');
+    } finally {
+      setIsSaving(false);
     }
   }
 
   async function handleSaveNodeLeadSchema(event) {
     event.preventDefault();
     resetMessages();
+    setIsSaving(true);
     try {
       await saveFormSchema({
         ...nodeLeadSchema,
@@ -306,6 +332,8 @@ export default function AdminPage() {
       refreshAll();
     } catch (nextError) {
       setError(nextError?.message || 'Could not save Node Lead form.');
+    } finally {
+      setIsSaving(false);
     }
   }
 
@@ -346,6 +374,7 @@ export default function AdminPage() {
   async function handleSaveUpdate(event) {
     event.preventDefault();
     resetMessages();
+    setIsSaving(true);
     try {
       await saveUpdatePost({
         ...updateDraft,
@@ -358,6 +387,8 @@ export default function AdminPage() {
       refreshAll();
     } catch (nextError) {
       setError(nextError?.message || 'Could not save update.');
+    } finally {
+      setIsSaving(false);
     }
   }
 
@@ -399,6 +430,8 @@ export default function AdminPage() {
   async function handleSendCampaign(event) {
     event.preventDefault();
     resetMessages();
+    if (!window.confirm('Send this newsletter to all recipients? This cannot be undone.')) return;
+    setIsSaving(true);
     try {
       const result = await sendNewsletterCampaign({
         ...newsletterDraft,
@@ -407,12 +440,15 @@ export default function AdminPage() {
       setMessage(`Newsletter sent to ${result.sent} recipients.`);
     } catch (nextError) {
       setError(nextError?.message || 'Could not send newsletter.');
+    } finally {
+      setIsSaving(false);
     }
   }
 
   async function handleGrantAdmin(event) {
     event.preventDefault();
     resetMessages();
+    setIsSaving(true);
     try {
       await grantAdminRole({ email: adminDraftEmail });
       setAdminDraftEmail('');
@@ -420,10 +456,13 @@ export default function AdminPage() {
       refreshAll();
     } catch (nextError) {
       setError(nextError?.message || 'Could not grant admin access.');
+    } finally {
+      setIsSaving(false);
     }
   }
 
   async function handleRevokeAdmin(email) {
+    if (!window.confirm(`Revoke admin access for ${email}?`)) return;
     resetMessages();
     try {
       await revokeAdminRole({ email });
@@ -435,6 +474,7 @@ export default function AdminPage() {
   }
 
   async function handleLeaveAdmin() {
+    if (!window.confirm('Remove your own admin access? You will be locked out of this panel.')) return;
     resetMessages();
     try {
       await leaveAdminRole();
@@ -474,7 +514,7 @@ export default function AdminPage() {
           <p className="section-label">Admin</p>
           {tabs.map((item) => (
             <button type="button" key={item} className={`admin-tab${tab === item ? ' is-active' : ''}`} onClick={() => setTab(item)}>
-              {item}
+              {TAB_LABELS[item]}
             </button>
           ))}
         </aside>
@@ -552,7 +592,7 @@ export default function AdminPage() {
                     <FieldBuilder schema={eventCustomSchema} onChange={setEventCustomSchema} />
                   </div>
                 ) : null}
-                <button type="submit" className="btn-primary">Save Event</button>
+                <button type="submit" className="btn-primary" disabled={isSaving}>{isSaving ? 'Saving...' : 'Save Event'}</button>
               </form>
 
               <div className="dashboard-card">
@@ -583,6 +623,9 @@ export default function AdminPage() {
                         </select>
                       </div>
                     ))}
+                  {!registrations.filter((item) => !selectedEventExportId || item.eventId === selectedEventExportId).length ? (
+                    <div className="empty-state">No registrations yet.</div>
+                  ) : null}
                 </div>
               </div>
 
@@ -595,6 +638,7 @@ export default function AdminPage() {
                       <span>{formatEventStatusLabel(item)}</span>
                     </button>
                   ))}
+                  {!sortedEvents.length ? <div className="empty-state">No events yet. Create one above.</div> : null}
                 </div>
               </div>
             </div>
@@ -619,7 +663,7 @@ export default function AdminPage() {
                 ) : (
                   <div className="dashboard-card"><p>Default Node Lead form is active.</p></div>
                 )}
-                <button type="submit" className="btn-primary">Save Node Lead Form</button>
+                <button type="submit" className="btn-primary" disabled={isSaving}>{isSaving ? 'Saving...' : 'Save Node Lead Form'}</button>
               </form>
 
               <div className="dashboard-card">
@@ -644,6 +688,7 @@ export default function AdminPage() {
                       </select>
                     </div>
                   ))}
+                  {!nodeLeads.length ? <div className="empty-state">No Node Lead applications yet.</div> : null}
                 </div>
               </div>
             </div>
@@ -675,16 +720,20 @@ export default function AdminPage() {
                   <div className="form-field"><label className="form-label">Publish state</label><select className="form-select" value={updateDraft.publishState} onChange={(e) => setUpdateDraft((c) => ({ ...c, publishState: e.target.value }))}><option value="draft">draft</option><option value="published">published</option></select></div>
                   <div className="form-field"><label className="form-label">Author</label><input className="form-input" value={updateDraft.authorName} onChange={(e) => setUpdateDraft((c) => ({ ...c, authorName: e.target.value }))} /></div>
                 </div>
-                <button type="submit" className="btn-primary">Save Update</button>
+                <button type="submit" className="btn-primary" disabled={isSaving}>{isSaving ? 'Saving...' : 'Save Update'}</button>
               </form>
 
               <div className="dashboard-card">
                 <h3>Posts</h3>
                 <div className="admin-list">
+                  {!updates.length ? <div className="empty-state">No posts yet. Create one above.</div> : null}
                   {updates.map((post) => (
                     <div className="admin-list-row" key={post.id}>
                       <button type="button" onClick={() => setUpdateDraft({ ...post, scope: post.scope || 'general', eventId: post.eventId || '', bodyHtml: post.bodyHtml || (post.body || []).map((paragraph) => `<p>${paragraph}</p>`).join('') })}>{post.title}</button>
-                      <button type="button" className="auth-link" onClick={() => deleteDocument('updates', post.id).then(refreshAll)}>Delete</button>
+                      <button type="button" className="auth-link" onClick={() => {
+                        if (!window.confirm(`Delete "${post.title}"? This cannot be undone.`)) return;
+                        deleteDocument('updates', post.id).then(refreshAll).catch((e) => setError(e?.message || 'Could not delete post.'));
+                      }}>Delete</button>
                     </div>
                   ))}
                 </div>
@@ -751,7 +800,7 @@ export default function AdminPage() {
                   <input type="file" accept=".csv,.xlsx,.xls" onChange={(e) => e.target.files?.[0] && handleNewsletterRecipientsFile(e.target.files[0])} />
                   {newsletterRecipientsUpload ? <p className="page-sub">Using uploaded audience: {newsletterRecipientsUpload.filename}</p> : null}
                 </div>
-                <button type="submit" className="btn-primary">Send Newsletter</button>
+                <button type="submit" className="btn-primary" disabled={isSaving}>{isSaving ? 'Sending...' : 'Send Newsletter'}</button>
               </form>
 
               <div className="dashboard-card">
@@ -763,6 +812,7 @@ export default function AdminPage() {
                       <span>{subscriber.status}</span>
                     </div>
                   ))}
+                  {!subscribers.length ? <div className="empty-state">No subscribers yet.</div> : null}
                 </div>
               </div>
             </div>
@@ -777,7 +827,7 @@ export default function AdminPage() {
                   <label className="form-label">User email</label>
                   <input className="form-input" value={adminDraftEmail} onChange={(e) => setAdminDraftEmail(e.target.value)} />
                 </div>
-                <button type="submit" className="btn-primary">Grant Admin</button>
+                <button type="submit" className="btn-primary" disabled={isSaving}>{isSaving ? 'Saving...' : 'Grant Admin'}</button>
               </form>
 
               <div className="dashboard-card">

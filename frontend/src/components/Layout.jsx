@@ -10,7 +10,9 @@ export default function Layout() {
   return (
     <div className={`site-shell${isBlurred ? ' is-auth-blurred' : ''}`}>
       <Nav />
-      <Outlet />
+      <main>
+        <Outlet />
+      </main>
       <EcosystemBar />
       <Footer />
     </div>

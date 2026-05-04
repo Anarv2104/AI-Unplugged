@@ -1167,7 +1167,7 @@ const server = http.createServer(async (req, res) => {
   });
 });
 
-server.listen(PORT, () => {
+server.listen(PORT, '0.0.0.0', () => {
   console.log(`AI Unplugged running at http://localhost:${PORT}`);
   console.log(`Serving frontend from ${DIST_DIR}`);
   console.log(`Saving legacy submissions to ${CSV_PATH}`);
