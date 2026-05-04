@@ -5,6 +5,7 @@ import SubmissionOverlay from '../components/SubmissionOverlay';
 import { buildInitialValues, REDIRECT_DELAY_MS, validateAgainstSchema } from '../lib/forms';
 import { getDefaultSchema, submitNodeLeadApplication } from '../lib/platform';
 import { useNavigate } from 'react-router-dom';
+import SEO from '../components/SEO';
 
 export default function NodeLeadPage() {
   const navigate = useNavigate();
@@ -16,7 +17,6 @@ export default function NodeLeadPage() {
   const [showSuccess, setShowSuccess] = useState(false);
 
   useEffect(() => {
-    document.title = 'Become a Node Lead - AI Unplugged';
     getDefaultSchema('nodeLead').then((nextSchema) => {
       setSchema(nextSchema);
       setValues(buildInitialValues(nextSchema.fields));
@@ -60,6 +60,18 @@ export default function NodeLeadPage() {
 
   return (
     <>
+      <SEO
+        title="Become a Node Lead"
+        description="Lead AI Unplugged in your city, campus, or region. Apply to become a node lead and help grow a curated builder community inside the House of Starts ecosystem."
+        path="/node-lead"
+        schemas={[{
+          '@type': 'BreadcrumbList',
+          itemListElement: [
+            { '@type': 'ListItem', position: 1, name: 'Home', item: 'https://aiunplugged.club' },
+            { '@type': 'ListItem', position: 2, name: 'Node Lead', item: 'https://aiunplugged.club/node-lead' },
+          ],
+        }]}
+      />
       <PageHeader
         label="Become a Node Lead"
         title="Grow a stronger"

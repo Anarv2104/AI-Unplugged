@@ -5,6 +5,7 @@ import SubmissionOverlay from '../components/SubmissionOverlay';
 import { buildInitialValues, REDIRECT_DELAY_MS, validateAgainstSchema } from '../lib/forms';
 import { submitHostApplication } from '../lib/platform';
 import { useNavigate } from 'react-router-dom';
+import SEO from '../components/SEO';
 
 const hostSchema = {
   id: 'host-interest-form',
@@ -47,7 +48,6 @@ export default function HostPage() {
   const [showSuccess, setShowSuccess] = useState(false);
 
   useEffect(() => {
-    document.title = 'Become a Host - AI Unplugged';
     setValues(buildInitialValues(hostSchema.fields, { countryCode: 'India (+91)' }));
   }, []);
 
@@ -84,6 +84,18 @@ export default function HostPage() {
 
   return (
     <>
+      <SEO
+        title="Become a Host"
+        description="Host an AI Unplugged session in your city. If you can provide the venue and gather strong builders, we help shape a curated, high-signal AI room with substance."
+        path="/become-a-host"
+        schemas={[{
+          '@type': 'BreadcrumbList',
+          itemListElement: [
+            { '@type': 'ListItem', position: 1, name: 'Home', item: 'https://aiunplugged.club' },
+            { '@type': 'ListItem', position: 2, name: 'Become a Host', item: 'https://aiunplugged.club/become-a-host' },
+          ],
+        }]}
+      />
       <PageHeader
         label="Host An AI Unplugged Session"
         title="Become a"

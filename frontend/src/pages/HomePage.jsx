@@ -5,6 +5,7 @@ import { fallbackUpdates } from '../lib/defaultContent';
 import { useAuth } from '../context/useAuth';
 import { getHomeSpotlightSettings, getPublishedEvents } from '../lib/platform';
 import { resolveHomeSpotlightEvents } from '../lib/events';
+import SEO from '../components/SEO';
 
 export default function HomePage() {
   const { isAuthenticated, isAdmin, loading } = useAuth();
@@ -15,7 +16,6 @@ export default function HomePage() {
   const featuredUpdates = useMemo(() => fallbackUpdates.slice(0, 2), []);
 
   useEffect(() => {
-    document.title = 'AI Unplugged - The AI Ecosystem for Builders';
     Promise.all([
       getPublishedEvents(),
       getHomeSpotlightSettings().catch(() => ({ featuredHomeEventIds: [] }))
@@ -48,8 +48,66 @@ export default function HomePage() {
     navigate('/login', { state: { backgroundLocation: location, nextPath: `/updates/${slug}` } });
   }
 
+  const homeSchemas = [
+    {
+      '@type': 'Organization',
+      name: 'AI Unplugged',
+      url: 'https://aiunplugged.club',
+      logo: 'https://aiunplugged.club/AI%20UP.png',
+      description: 'AI Unplugged is a builder-first platform for high-signal AI rooms, curated events, and compounding access inside the House of Starts ecosystem.',
+      memberOf: { '@type': 'Organization', name: 'House of Starts' },
+      sameAs: [],
+    },
+    {
+      '@type': 'WebSite',
+      name: 'AI Unplugged',
+      url: 'https://aiunplugged.club',
+      description: 'AI Unplugged hosts curated AI events, builder rooms, and open hours for founders, researchers, and practitioners.',
+    },
+    {
+      '@type': 'FAQPage',
+      mainEntity: [
+        {
+          '@type': 'Question',
+          name: 'What is AI Unplugged?',
+          acceptedAnswer: { '@type': 'Answer', text: 'AI Unplugged is a builder-first platform for high-signal AI rooms, curated events, and compounding access inside the House of Starts startup ecosystem. It brings together founders, researchers, and practitioners to build with AI in public.' },
+        },
+        {
+          '@type': 'Question',
+          name: 'Who can attend AI Unplugged events?',
+          acceptedAnswer: { '@type': 'Answer', text: 'AI Unplugged events are open to builders, students, founders, and operators who are actively working on or exploring AI applications. Rooms are curated and selective to maintain a high-signal environment.' },
+        },
+        {
+          '@type': 'Question',
+          name: 'How do I register for an AI Unplugged event?',
+          acceptedAnswer: { '@type': 'Answer', text: 'Create a free account at aiunplugged.club, browse the Events page, and apply to attend any upcoming session. Each event has a short application to ensure the right room composition.' },
+        },
+        {
+          '@type': 'Question',
+          name: 'What is House of Starts?',
+          acceptedAnswer: { '@type': 'Answer', text: 'House of Starts is a startup ecosystem focused on builders, founders, talent, and execution. AI Unplugged operates as one of the high-signal public-facing rooms within that wider system.' },
+        },
+        {
+          '@type': 'Question',
+          name: 'How can I host an AI Unplugged event?',
+          acceptedAnswer: { '@type': 'Answer', text: 'Organisations and individuals can apply to host a room through the Become a Host page at aiunplugged.club/become-a-host. Hosts provide a venue and co-curate the session with the AI Unplugged team.' },
+        },
+        {
+          '@type': 'Question',
+          name: 'What types of events does AI Unplugged run?',
+          acceptedAnswer: { '@type': 'Answer', text: 'AI Unplugged runs Flagship sessions, Execution rooms, Showcase events, and Opportunity rooms — each designed for a different stage of builder engagement with artificial intelligence.' },
+        },
+      ],
+    },
+  ];
+
   return (
     <>
+      <SEO
+        path="/"
+        description="AI Unplugged is a builder-first platform for high-signal AI rooms, curated events, and compounding access inside the House of Starts ecosystem. Join as attendee, host, or node lead."
+        schemas={homeSchemas}
+      />
       <section className="hero">
         <p className="hero-label">BUILT INSIDE THE STARTUP ECOSYSTEM</p>
 

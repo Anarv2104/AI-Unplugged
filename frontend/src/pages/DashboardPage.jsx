@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../context/useAuth';
 import { getMemberDashboard } from '../lib/platform';
+import SEO from '../components/SEO';
 
 const UPDATE_KIND_LABELS = {
   recap: 'Recap',
@@ -41,7 +42,6 @@ export default function DashboardPage() {
   const [error, setError] = useState('');
 
   useEffect(() => {
-    document.title = 'Dashboard - AI Unplugged';
     if (!isAuthenticated) return;
     getMemberDashboard()
       .then(setData)
@@ -78,6 +78,7 @@ export default function DashboardPage() {
 
   return (
     <section className="section-wrap dashboard-shell">
+      <SEO title="Dashboard" noIndex={true} />
       <div className="page-header dashboard-head">
         <p className="section-label">Dashboard</p>
         <h1>{dashboardTitle}</h1>

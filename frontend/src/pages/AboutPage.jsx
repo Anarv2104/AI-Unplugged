@@ -1,14 +1,52 @@
 import { useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import PageHeader from '../components/PageHeader';
+import SEO from '../components/SEO';
+
+const aboutSchemas = [
+  {
+    '@type': 'FAQPage',
+    mainEntity: [
+      {
+        '@type': 'Question',
+        name: 'What is AI Unplugged?',
+        acceptedAnswer: { '@type': 'Answer', text: 'AI Unplugged is a platform for builders who want better rooms, better conversations, and better pressure. It is designed for people who want to build with AI in public, in front of serious peers.' },
+      },
+      {
+        '@type': 'Question',
+        name: 'Who runs AI Unplugged?',
+        acceptedAnswer: { '@type': 'Answer', text: 'AI Unplugged is part of House of Starts, a startup ecosystem focused on builders, founders, talent, and execution. It operates as one of the high-signal public-facing rooms inside that wider system.' },
+      },
+      {
+        '@type': 'Question',
+        name: 'Is AI Unplugged a passive community?',
+        acceptedAnswer: { '@type': 'Answer', text: 'No. AI Unplugged is not a passive community built around endless chatter or attendance theatre. The rooms are curated, selective, and built around output.' },
+      },
+      {
+        '@type': 'Question',
+        name: 'How is AI Unplugged connected to other opportunities?',
+        acceptedAnswer: { '@type': 'Answer', text: 'Attending AI Unplugged events places you inside a connected builder ecosystem that can lead to better collaborators, stronger projects, and real opportunities through the House of Starts network.' },
+      },
+    ],
+  },
+  {
+    '@type': 'BreadcrumbList',
+    itemListElement: [
+      { '@type': 'ListItem', position: 1, name: 'Home', item: 'https://aiunplugged.club' },
+      { '@type': 'ListItem', position: 2, name: 'About', item: 'https://aiunplugged.club/about' },
+    ],
+  },
+];
 
 export default function AboutPage() {
-  useEffect(() => {
-    document.title = 'About - AI Unplugged';
-  }, []);
-
   return (
     <>
+      <SEO
+        title="About"
+        description="AI Unplugged is a builder-first platform for high-signal AI rooms inside the House of Starts ecosystem. Curated, selective, and built around output — not attendance theatre."
+        path="/about"
+        schemas={aboutSchemas}
+      />
       <PageHeader
         label="About"
         title="Why AI"

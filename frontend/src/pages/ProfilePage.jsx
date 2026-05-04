@@ -1,16 +1,13 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { Navigate } from 'react-router-dom';
 import { useAuth } from '../context/useAuth';
 import { updateNewsletterPreference } from '../lib/platform';
+import SEO from '../components/SEO';
 
 export default function ProfilePage() {
   const { isAuthenticated, loading, profile, user, isAdmin, refreshProfile } = useAuth();
   const [pending, setPending] = useState(false);
   const [message, setMessage] = useState('');
-
-  useEffect(() => {
-    document.title = 'Profile - AI Unplugged';
-  }, []);
 
   async function handleNewsletterChange(subscribed) {
     setPending(true);
@@ -46,6 +43,7 @@ export default function ProfilePage() {
 
   return (
     <section className="section-wrap profile-wrap">
+      <SEO title="Profile" noIndex={true} />
       <div className="dashboard-card profile-card">
         <p className="section-label">Profile</p>
         <h2>{profile?.displayName || user?.displayName || 'Member'}</h2>

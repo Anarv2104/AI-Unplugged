@@ -3,6 +3,7 @@ import { Link, useSearchParams } from 'react-router-dom';
 import PageHeader from '../components/PageHeader';
 import { sortEventsByState } from '../lib/events';
 import { getPublishedEvents } from '../lib/platform';
+import SEO from '../components/SEO';
 
 const filters = ['all', 'Flagship', 'Execution', 'Showcase', 'Opportunity'];
 
@@ -26,7 +27,6 @@ export default function EventsPage() {
   const selectedType = searchParams.get('type') || 'all';
 
   useEffect(() => {
-    document.title = 'Events - AI Unplugged';
     getPublishedEvents().then((items) => {
       setEvents(items);
       setLoading(false);
@@ -45,8 +45,24 @@ export default function EventsPage() {
     setSearchParams(nextParams);
   }
 
+  const eventsSchemas = [
+    {
+      '@type': 'BreadcrumbList',
+      itemListElement: [
+        { '@type': 'ListItem', position: 1, name: 'Home', item: 'https://aiunplugged.club' },
+        { '@type': 'ListItem', position: 2, name: 'Events', item: 'https://aiunplugged.club/events' },
+      ],
+    },
+  ];
+
   return (
     <>
+      <SEO
+        title="Events"
+        description="Browse upcoming and ongoing AI Unplugged sessions — Flagship rooms, Execution sessions, Showcases, and Opportunity events for builders, founders, and practitioners."
+        path="/events"
+        schemas={eventsSchemas}
+      />
       <PageHeader
         label="Events"
         title="Find your next"

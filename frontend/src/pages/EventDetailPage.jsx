@@ -3,6 +3,7 @@ import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-do
 import { getEventStatus } from '../lib/events';
 import { getEventById } from '../lib/platform';
 import { useAuth } from '../context/useAuth';
+import SEO from '../components/SEO';
 
 const EventMap = lazy(() => import('../components/EventMap'));
 
@@ -17,10 +18,6 @@ export default function EventDetailPage() {
   useEffect(() => {
     getEventById(id).then(setEvent);
   }, [id]);
-
-  useEffect(() => {
-    document.title = event ? `${event.title} - AI Unplugged` : 'Event - AI Unplugged';
-  }, [event]);
 
   if (event === undefined) {
     return <div className="page-header"><p className="page-sub">Loading event...</p></div>;
@@ -52,9 +49,55 @@ export default function EventDetailPage() {
   }
 
   const eventStatus = getEventStatus(event || {});
+  const eventPath = `/event?id=${encodeURIComponent(event.id)}`;
+  const startDate = event.date && event.startTime
+    ? new Date(`${event.date}T${event.startTime}:00`).toISOString()
+    : event.date;
+  const endDate = event.date && event.endTime
+    ? new Date(`${event.date}T${event.endTime}:00`).toISOString()
+    : undefined;
+  const eventDescription = (event.description || []).join(' ');
+
+  const eventSchemas = [
+    {
+      '@type': 'Event',
+      name: event.title,
+      description: eventDescription || `${event.type} event hosted by AI Unplugged.`,
+      startDate,
+      ...(endDate ? { endDate } : {}),
+      eventStatus: 'https://schema.org/EventScheduled',
+      eventAttendanceMode: 'https://schema.org/OfflineEventAttendanceMode',
+      location: {
+        '@type': 'Place',
+        name: event.location || 'TBA',
+        address: event.mapAddress || event.location || 'TBA',
+      },
+      organizer: {
+        '@type': 'Organization',
+        name: 'AI Unplugged',
+        url: 'https://aiunplugged.club',
+      },
+      url: `https://aiunplugged.club${eventPath}`,
+    },
+    {
+      '@type': 'BreadcrumbList',
+      itemListElement: [
+        { '@type': 'ListItem', position: 1, name: 'Home', item: 'https://aiunplugged.club' },
+        { '@type': 'ListItem', position: 2, name: 'Events', item: 'https://aiunplugged.club/events' },
+        { '@type': 'ListItem', position: 3, name: event.title, item: `https://aiunplugged.club${eventPath}` },
+      ],
+    },
+  ];
 
   return (
     <article>
+      <SEO
+        title={event.title}
+        description={eventDescription ? eventDescription.slice(0, 160) : `${event.type} event hosted by AI Unplugged on ${event.dateDisplay}.`}
+        path={eventPath}
+        ogType="event"
+        schemas={eventSchemas}
+      />
       <header className="event-detail-hero">
         <p className="type-badge">{event.type}</p>
         <h1>{event.title}</h1>

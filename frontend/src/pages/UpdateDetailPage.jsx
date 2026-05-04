@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react';
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
 import { useAuth } from '../context/useAuth';
 import { getCommentsForUpdate, getUpdateBySlug, submitUpdateComment } from '../lib/platform';
+import SEO from '../components/SEO';
 
 function AttachmentItem({ att }) {
   const isImage = att.mimeType?.startsWith('image/');
@@ -56,9 +57,6 @@ export default function UpdateDetailPage() {
     });
   }, [slug]);
 
-  useEffect(() => {
-    document.title = update ? `${update.title} - AI Unplugged` : 'Updates - AI Unplugged';
-  }, [update]);
 
   async function handleCommentSubmit(event) {
     event.preventDefault();
@@ -101,8 +99,40 @@ export default function UpdateDetailPage() {
     );
   }
 
+  const updatePath = `/updates/${slug}`;
+  const updateSchemas = [
+    {
+      '@type': 'Article',
+      headline: update.title,
+      description: update.excerpt || '',
+      author: { '@type': 'Organization', name: update.authorName || 'AI Unplugged' },
+      publisher: {
+        '@type': 'Organization',
+        name: 'AI Unplugged',
+        logo: { '@type': 'ImageObject', url: 'https://aiunplugged.club/AI%20UP.png' },
+      },
+      datePublished: update.publishedAt || update.createdAt || '',
+      url: `https://aiunplugged.club${updatePath}`,
+    },
+    {
+      '@type': 'BreadcrumbList',
+      itemListElement: [
+        { '@type': 'ListItem', position: 1, name: 'Home', item: 'https://aiunplugged.club' },
+        { '@type': 'ListItem', position: 2, name: 'Updates', item: 'https://aiunplugged.club/updates' },
+        { '@type': 'ListItem', position: 3, name: update.title, item: `https://aiunplugged.club${updatePath}` },
+      ],
+    },
+  ];
+
   return (
     <article className="update-detail">
+      <SEO
+        title={update.title}
+        description={update.excerpt ? update.excerpt.slice(0, 160) : update.title}
+        path={updatePath}
+        ogType="article"
+        schemas={updateSchemas}
+      />
       <div className="page-header">
         <p className="section-label">{update.category}</p>
         <h1>{update.title}</h1>

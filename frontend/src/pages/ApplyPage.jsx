@@ -6,6 +6,7 @@ import SubmissionOverlay from '../components/SubmissionOverlay';
 import { useAuth } from '../context/useAuth';
 import { buildInitialValues, validateAgainstSchema, REDIRECT_DELAY_MS } from '../lib/forms';
 import { getDefaultSchema, getPublishedEvents, getSchemaById, submitEventRegistration } from '../lib/platform';
+import SEO from '../components/SEO';
 
 export default function ApplyPage() {
   const navigate = useNavigate();
@@ -23,7 +24,6 @@ export default function ApplyPage() {
   const [showSuccess, setShowSuccess] = useState(false);
 
   useEffect(() => {
-    document.title = 'Attend - AI Unplugged';
     getPublishedEvents().then((items) => {
       setEvents(items);
       if (!selectedEventId && items[0]?.id) setSelectedEventId(items[0].id);
@@ -97,6 +97,18 @@ export default function ApplyPage() {
 
   return (
     <>
+      <SEO
+        title="Attend an Event"
+        description="Apply to attend an AI Unplugged session. Pick the event that fits your momentum and send in the details needed to confirm your spot in the room."
+        path="/attend"
+        schemas={[{
+          '@type': 'BreadcrumbList',
+          itemListElement: [
+            { '@type': 'ListItem', position: 1, name: 'Home', item: 'https://aiunplugged.club' },
+            { '@type': 'ListItem', position: 2, name: 'Attend', item: 'https://aiunplugged.club/attend' },
+          ],
+        }]}
+      />
       <PageHeader
         label="Attend"
         title="Step into the"
