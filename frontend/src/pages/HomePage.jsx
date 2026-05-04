@@ -302,12 +302,12 @@ export default function HomePage() {
           <div className="host-callout">
             <div className="host-visual" aria-hidden="true">
               <div className="host-visual-shell">
+                <div className="host-visual-ring" />
                 <div className="host-visual-card host-card-one">
                   <span className="host-chip">HOST</span>
                   <strong>Builder room</strong>
                   <p>Founders, students, operators, and working builders in one high-signal room.</p>
                 </div>
-                <div className="host-visual-ring" />
                 <div className="host-visual-card host-card-two">
                   <span className="host-chip">LOCAL</span>
                   <strong>Your venue, our format</strong>

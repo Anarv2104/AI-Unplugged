@@ -929,7 +929,7 @@ nav {
 }
 
 .host-visual {
-  min-height: 360px;
+  min-height: 400px;
   border: 1px solid var(--border-dark);
   border-radius: 28px;
   background:
@@ -943,7 +943,7 @@ nav {
 .host-visual-shell {
   position: relative;
   width: 100%;
-  min-height: 310px;
+  min-height: 352px;
 }
 
 .host-visual-ring {
@@ -955,10 +955,10 @@ nav {
 
 .host-visual-card {
   position: absolute;
-  max-width: 270px;
+  width: 54%;
   padding: 20px;
   border-radius: 22px;
-  background: rgba(247,245,240,0.96);
+  background: var(--cream-light);
   border: 1px solid var(--border-dark);
   box-shadow: 0 14px 28px rgba(0,0,0,0.06);
 }
@@ -966,11 +966,13 @@ nav {
 .host-card-one {
   top: 8px;
   left: 0;
+  width: 52%;
 }
 
 .host-card-two {
   right: 0;
   bottom: 8px;
+  width: 58%;
 }
 
 .host-chip {
