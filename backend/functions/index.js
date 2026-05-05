@@ -17,6 +17,23 @@ const mailProvider = createBrevoProvider({
   senderNameSecret: BREVO_SENDER_NAME
 });
 
+const BUILT_IN_DEFAULT_EVENT_SCHEMA = {
+  id: 'default-event-form',
+  kind: 'event',
+  title: 'Default Event Registration Form',
+  isDefault: true,
+  publishState: 'published',
+  fields: [
+    { id: 'name', type: 'text', label: 'Full name', required: true, placeholder: '' },
+    { id: 'email', type: 'email', label: 'Email', required: true, placeholder: '' },
+    { id: 'role', type: 'select', label: 'Role', required: true, options: ['Student', 'Builder', 'Founder', 'Operator', 'Other'] },
+    { id: 'organization', type: 'text', label: 'Organization / College', required: true },
+    { id: 'building', type: 'textarea', label: 'What are you building right now?', required: true, minLength: 20, helperText: '20-500 characters', placeholder: 'Short and honest. Rough projects count.' },
+    { id: 'whyEvent', type: 'textarea', label: 'Why this event?', required: true, minLength: 15, placeholder: "Be specific. 'To network' is not a reason." },
+    { id: 'social', type: 'url', label: 'LinkedIn / Twitter / Website', required: false, helperText: 'Optional' }
+  ]
+};
+
 function requireAuth(request) {
   if (!request.auth) {
     throw new HttpsError('unauthenticated', 'You must be logged in.');
@@ -79,6 +96,18 @@ function slugify(value) {
     .replace(/^-+|-+$/g, '');
 }
 
+function normalizeEntryType(entry) {
+  const value = String(entry || '').trim().toLowerCase();
+  if (value === 'open') return 'open';
+  if (value === 'invite only') return 'invite-only';
+  if (value === 'curated') return 'curated';
+  return 'application';
+}
+
+function makeRegistrationId() {
+  return `AIU-${new Date().getFullYear()}-${Math.random().toString(16).slice(2, 10).toUpperCase()}`;
+}
+
 function normalizeFieldValue(field, raw) {
   if (field.type === 'checkbox') return Boolean(raw);
   if (field.type === 'number') return raw === '' || raw == null ? '' : Number(raw);
@@ -138,7 +167,10 @@ async function getSchemaForKind({ kind, schemaId }) {
     .limit(1)
     .get();
 
-  if (snap.empty) throw new HttpsError('failed-precondition', `Default ${kind} schema is missing.`);
+  if (snap.empty) {
+    if (kind === 'event') return BUILT_IN_DEFAULT_EVENT_SCHEMA;
+    throw new HttpsError('failed-precondition', `Default ${kind} schema is missing.`);
+  }
   const doc = snap.docs[0];
   return { id: doc.id, ...doc.data() };
 }
@@ -154,6 +186,10 @@ exports.submitEventRegistration = onCall(async (request) => {
   if (event.publishState !== 'published') {
     throw new HttpsError('failed-precondition', 'Event is not open for registration.');
   }
+  const entryType = normalizeEntryType(event.entry);
+  if (entryType === 'invite-only') {
+    throw new HttpsError('failed-precondition', 'This event is invite only. Registration is not open through the public attend form.');
+  }
 
   const schema = await getSchemaForKind({
     kind: 'event',
@@ -168,14 +204,17 @@ exports.submitEventRegistration = onCall(async (request) => {
   const now = admin.firestore.FieldValue.serverTimestamp();
   const email = normalized.email || data.email || '';
   const userRef = request.auth ? db.collection('users').doc(request.auth.uid) : null;
+  const registrationId = makeRegistrationId();
 
   const registration = {
+    registrationId,
     eventId,
     eventTitle: event.title,
+    entryType,
     formId: schema.id,
     formTitle: schema.title,
     answers: normalized,
-    reviewStatus: 'pending',
+    reviewStatus: entryType === 'open' ? 'accepted' : 'pending',
     source: request.auth ? 'member' : 'guest',
     userId: request.auth ? request.auth.uid : null,
     name: normalized.name || data.name || '',
@@ -208,7 +247,7 @@ exports.submitEventRegistration = onCall(async (request) => {
     }, { merge: true });
   }
 
-  return { ok: true, id: docRef.id };
+  return { ok: true, id: docRef.id, registrationId, entryType, reviewStatus: registration.reviewStatus };
 });
 
 exports.submitNodeLeadApplication = onCall(async (request) => {

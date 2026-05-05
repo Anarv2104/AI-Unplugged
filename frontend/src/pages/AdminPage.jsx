@@ -306,6 +306,27 @@ export default function AdminPage() {
     () => Object.fromEntries(updates.map((item) => [item.id, item])),
     [updates]
   );
+  const filteredRegistrations = useMemo(
+    () => registrations.filter((item) => !selectedEventExportId || item.eventId === selectedEventExportId),
+    [registrations, selectedEventExportId]
+  );
+  const registrationStats = useMemo(() => {
+    const counts = {
+      total: filteredRegistrations.length,
+      accepted: 0,
+      pending: 0,
+      rejected: 0,
+    };
+
+    for (const item of filteredRegistrations) {
+      const status = String(item.reviewStatus || 'pending').toLowerCase();
+      if (status === 'accepted') counts.accepted += 1;
+      else if (status === 'rejected') counts.rejected += 1;
+      else counts.pending += 1;
+    }
+
+    return counts;
+  }, [filteredRegistrations]);
 
   async function refreshAll() {
     setError('');
@@ -1015,13 +1036,20 @@ export default function AdminPage() {
                       <button type="button" className="btn-secondary" onClick={() => handleExport('json', selectedEventExportId)}>JSON</button>
                     </div>
                   </div>
+                  <div className="admin-inline-actions" style={{ marginBottom: 18, gap: 12, flexWrap: 'wrap' }}>
+                    <span className="event-tag">Total {registrationStats.total}</span>
+                    <span className="event-tag">Accepted {registrationStats.accepted}</span>
+                    <span className="event-tag">Pending {registrationStats.pending}</span>
+                    <span className="event-tag">Rejected {registrationStats.rejected}</span>
+                  </div>
                   <div className="admin-table">
-                    {registrations
-                      .filter((item) => !selectedEventExportId || item.eventId === selectedEventExportId)
-                      .map((item) => (
+                    {filteredRegistrations.map((item) => (
                         <div className="admin-table-row" key={item.id}>
                           <div><strong>{item.name || item.answers?.name || 'Unnamed'}</strong><p>{item.email || item.answers?.email}</p><p>{item.registrationId}</p></div>
-                          <div>{item.eventTitle}</div>
+                          <div>
+                            <strong>{item.eventTitle}</strong>
+                            <p>{item.entryType || 'application'}</p>
+                          </div>
                           <select className="form-select" value={item.reviewStatus || 'pending'} onChange={(e) => patchStatus('eventRegistrations', item.id, e.target.value)}>
                             <option value="pending">pending</option>
                             <option value="shortlisted">shortlisted</option>
@@ -1030,7 +1058,7 @@ export default function AdminPage() {
                           </select>
                         </div>
                       ))}
-                    {!registrations.filter((item) => !selectedEventExportId || item.eventId === selectedEventExportId).length ? (
+                    {!filteredRegistrations.length ? (
                       <div className="empty-state">No registrations yet.</div>
                     ) : null}
                   </div>

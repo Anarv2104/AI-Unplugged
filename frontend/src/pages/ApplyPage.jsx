@@ -22,6 +22,7 @@ export default function ApplyPage() {
   const [formMessage, setFormMessage] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [showSuccess, setShowSuccess] = useState(false);
+  const [submissionEntryType, setSubmissionEntryType] = useState('application');
 
   useEffect(() => {
     getPublishedEvents().then((items) => {
@@ -81,12 +82,14 @@ export default function ApplyPage() {
     setFormMessage('');
 
     try {
-      await submitEventRegistration({
+      const result = await submitEventRegistration({
         eventId: selectedEventId,
         answers: values
       });
+      const nextEntryType = result?.entryType || 'application';
+      setSubmissionEntryType(nextEntryType);
       setShowSuccess(true);
-      window.setTimeout(() => navigate('/thank-you?form=attend'), REDIRECT_DELAY_MS);
+      window.setTimeout(() => navigate(`/thank-you?form=attend&entry=${encodeURIComponent(nextEntryType)}`), REDIRECT_DELAY_MS);
     } catch (error) {
       const fieldErrors = error?.details?.errors;
       if (fieldErrors) setErrors(fieldErrors);
@@ -170,14 +173,22 @@ export default function ApplyPage() {
               <button type="submit" className={`btn-primary${submitting ? ' is-disabled' : ''}`} disabled={submitting || !schema}>
                 {submitting ? 'Submitting...' : <>Submit Attendance Request <span className="btn-arrow">&rarr;</span></>}
               </button>
-              <span className="submit-note">Most confirmations are reviewed within a few days.</span>
+              <span className="submit-note">
+                {selectedEvent?.entry === 'Open'
+                  ? 'Open events confirm immediately.'
+                  : selectedEvent?.entry === 'Invite Only'
+                    ? 'Invite-only rooms require a direct invite.'
+                    : selectedEvent?.entry === 'Curated'
+                      ? 'Curated rooms are reviewed manually.'
+                      : 'Application-based events are reviewed manually.'}
+              </span>
             </div>
             {formMessage ? <div className="form-error" style={{ display: 'block', marginTop: 12 }}>{formMessage}</div> : null}
           </form>
         </div>
       </div>
 
-      <SubmissionOverlay visible={showSuccess} formType="attend" />
+      <SubmissionOverlay visible={showSuccess} formType="attend" entryType={submissionEntryType} />
     </>
   );
 }

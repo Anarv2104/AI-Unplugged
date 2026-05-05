@@ -1,11 +1,16 @@
-import { lazy, Suspense, useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { getEventStatus } from '../lib/events';
 import { getEventById } from '../lib/platform';
 import { useAuth } from '../context/useAuth';
 import SEO from '../components/SEO';
 
-const EventMap = lazy(() => import('../components/EventMap'));
+function toSafeIsoDate(date, time = '') {
+  if (!date) return null;
+  const raw = time ? `${date}T${time}` : date;
+  const parsed = new Date(raw);
+  return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString();
+}
 
 export default function EventDetailPage() {
   const [searchParams] = useSearchParams();
@@ -16,7 +21,17 @@ export default function EventDetailPage() {
   const id = searchParams.get('id');
 
   useEffect(() => {
-    getEventById(id).then(setEvent);
+    let active = true;
+    getEventById(id)
+      .then((nextEvent) => {
+        if (active) setEvent(nextEvent);
+      })
+      .catch(() => {
+        if (active) setEvent(null);
+      });
+    return () => {
+      active = false;
+    };
   }, [id]);
 
   if (event === undefined) {
@@ -50,20 +65,20 @@ export default function EventDetailPage() {
 
   const eventStatus = getEventStatus(event || {});
   const eventPath = `/event?id=${encodeURIComponent(event.id)}`;
-  const startDate = event.date && event.startTime
-    ? new Date(`${event.date}T${event.startTime}:00`).toISOString()
-    : event.date;
-  const endDate = event.date && event.endTime
-    ? new Date(`${event.date}T${event.endTime}:00`).toISOString()
-    : undefined;
-  const eventDescription = (event.description || []).join(' ');
+  const startDate = event.startTime ? toSafeIsoDate(event.date, event.startTime) : toSafeIsoDate(event.date);
+  const endDate = event.endTime ? toSafeIsoDate(event.date, event.endTime) : null;
+  const descriptionParagraphs = Array.isArray(event.description) ? event.description.filter(Boolean) : [];
+  const eventDescription = descriptionParagraphs.join(' ');
+  const agendaItems = Array.isArray(event.agenda) ? event.agenda.filter((item) => item?.time || item?.item) : [];
+  const speakers = Array.isArray(event.speakers) ? event.speakers.filter((speaker) => speaker?.name || speaker?.role) : [];
+  const aboutCopy = descriptionParagraphs.length ? descriptionParagraphs : (event.tagline ? [event.tagline] : []);
 
   const eventSchemas = [
     {
       '@type': 'Event',
       name: event.title,
       description: eventDescription || `${event.type} event hosted by AI Unplugged.`,
-      startDate,
+      ...(startDate ? { startDate } : {}),
       ...(endDate ? { endDate } : {}),
       eventStatus: 'https://schema.org/EventScheduled',
       eventAttendanceMode: 'https://schema.org/OfflineEventAttendanceMode',
@@ -93,7 +108,7 @@ export default function EventDetailPage() {
     <article>
       <SEO
         title={event.title}
-        description={eventDescription ? eventDescription.slice(0, 160) : `${event.type} event hosted by AI Unplugged on ${event.dateDisplay}.`}
+        description={eventDescription ? eventDescription.slice(0, 160) : `${event.type} event hosted by AI Unplugged${event.dateDisplay ? ` on ${event.dateDisplay}` : ''}.`}
         path={eventPath}
         ogType="event"
         schemas={eventSchemas}
@@ -102,7 +117,7 @@ export default function EventDetailPage() {
         <p className="type-badge">{event.type}</p>
         <h1>{event.title}</h1>
         <div className="event-meta-row">
-          <span>{event.dateDisplay}</span>
+          {event.dateDisplay ? <span>{event.dateDisplay}</span> : null}
           {event.location ? <span>{event.location}</span> : null}
           {event.duration ? <span>{event.duration}</span> : null}
         </div>
@@ -112,13 +127,13 @@ export default function EventDetailPage() {
         <div className="event-body-grid">
           <div className="event-body-content">
             <h2>About the room</h2>
-            {(event.description || []).map((paragraph) => <p key={paragraph}>{paragraph}</p>)}
+            {aboutCopy.length ? aboutCopy.map((paragraph) => <p key={paragraph}>{paragraph}</p>) : <p>Details for this room will be shared soon.</p>}
 
-            {event.agenda?.length ? (
+            {agendaItems.length ? (
               <div>
                 <h2>Agenda</h2>
                 <div>
-                  {event.agenda.map((agendaItem) => (
+                  {agendaItems.map((agendaItem) => (
                     <div className="agenda-row" key={`${agendaItem.time}-${agendaItem.item}`}>
                       <span className="time">{agendaItem.time}</span>
                       <span>{agendaItem.item}</span>
@@ -128,11 +143,11 @@ export default function EventDetailPage() {
               </div>
             ) : null}
 
-            {event.speakers?.length ? (
+            {speakers.length ? (
               <div>
                 <h2>Speakers</h2>
                 <div>
-                  {event.speakers.map((speaker) => (
+                  {speakers.map((speaker) => (
                     <div className="speaker-row" key={`${speaker.name}-${speaker.role}`}>
                       <div className="name">{speaker.name}</div>
                       <div className="role">{speaker.role}</div>
@@ -142,38 +157,33 @@ export default function EventDetailPage() {
               </div>
             ) : null}
 
-            {event.mapEnabled ? (
-              <div style={{ marginTop: 40 }}>
-                <h2>Map</h2>
-                <Suspense fallback={<div className="empty-state">Loading map...</div>}>
-                  <EventMap
-                    lat={event.mapLat}
-                    lng={event.mapLng}
-                    address={event.mapAddress}
-                    label={event.title}
-                  />
-                </Suspense>
-              </div>
-            ) : null}
           </div>
 
           <aside className="event-side-card">
-            <div className="detail-row">
-              <span className="label">Format</span>
-              <span className="val">{event.format}</span>
-            </div>
-            <div className="detail-row">
-              <span className="label">Capacity</span>
-              <span className="val">{event.capacity} builders</span>
-            </div>
-            <div className="detail-row">
-              <span className="label">Entry</span>
-              <span className="val">{event.entry}</span>
-            </div>
-            <div className="detail-row">
-              <span className="label">Duration</span>
-              <span className="val">{event.duration}</span>
-            </div>
+            {event.format ? (
+              <div className="detail-row">
+                <span className="label">Format</span>
+                <span className="val">{event.format}</span>
+              </div>
+            ) : null}
+            {event.capacity ? (
+              <div className="detail-row">
+                <span className="label">Capacity</span>
+                <span className="val">{event.capacity} builders</span>
+              </div>
+            ) : null}
+            {event.entry ? (
+              <div className="detail-row">
+                <span className="label">Entry</span>
+                <span className="val">{event.entry}</span>
+              </div>
+            ) : null}
+            {event.duration ? (
+              <div className="detail-row">
+                <span className="label">Duration</span>
+                <span className="val">{event.duration}</span>
+              </div>
+            ) : null}
 
             {eventStatus === 'past' ? (
               <span className="ended">This event has ended</span>

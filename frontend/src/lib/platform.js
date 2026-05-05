@@ -22,6 +22,7 @@ import {
   fallbackEvents,
   fallbackUpdates
 } from './defaultContent';
+import { normalizeEventRecord } from './events';
 
 function sortByDateDesc(items, key = 'publishedAt') {
   function toMillis(value) {
@@ -37,6 +38,12 @@ function sortByDateDesc(items, key = 'publishedAt') {
 
 function mapDoc(snapshot) {
   return { id: snapshot.id, ...snapshot.data() };
+}
+
+function normalizeEventDocuments(items) {
+  return items
+    .map((item) => normalizeEventRecord(item))
+    .filter(Boolean);
 }
 
 async function apiRequest(path, { method = 'GET', body, requireAuth = false } = {}) {
@@ -67,6 +74,9 @@ async function apiRequest(path, { method = 'GET', body, requireAuth = false } = 
     if (response.status === 404 && path.startsWith('/api/platform/')) {
       message = 'The running backend is outdated or missing this route. Restart the backend and refresh the frontend.';
     }
+    if (response.status === 412 && String(message).includes('Default event schema is missing.')) {
+      message = 'The running backend is outdated and does not include the default event schema fallback yet. Restart the backend and refresh the frontend.';
+    }
     if (response.status === 503 && String(message).includes('FIREBASE_SERVICE_ACCOUNT_PATH')) {
       message = 'Local backend setup is incomplete. Add backend/serviceAccount.json and set FIREBASE_SERVICE_ACCOUNT_PATH in backend/.env, then restart the backend.';
     }
@@ -79,17 +89,17 @@ async function apiRequest(path, { method = 'GET', body, requireAuth = false } = 
 }
 
 export async function getPublishedEvents() {
-  if (!db) return fallbackEvents;
+  if (!db) return normalizeEventDocuments(fallbackEvents);
   const q = query(collection(db, 'events'), where('publishState', '==', 'published'));
   const snap = await getDocs(q);
-  if (snap.empty) return fallbackEvents;
-  return snap.docs.map(mapDoc).sort((a, b) => new Date(a.date) - new Date(b.date));
+  if (snap.empty) return [];
+  return normalizeEventDocuments(snap.docs.map(mapDoc)).sort((a, b) => new Date(a.date || 0) - new Date(b.date || 0));
 }
 
 export async function getAdminEvents() {
-  if (!db) return fallbackEvents;
+  if (!db) return normalizeEventDocuments(fallbackEvents);
   const snap = await getDocs(collection(db, 'events'));
-  return snap.docs.map(mapDoc).sort((a, b) => new Date(a.date || 0) - new Date(b.date || 0));
+  return normalizeEventDocuments(snap.docs.map(mapDoc)).sort((a, b) => new Date(a.date || 0) - new Date(b.date || 0));
 }
 
 export async function getHomeSpotlightSettings() {
@@ -116,14 +126,35 @@ export async function saveHomeSpotlightSettings(featuredHomeEventIds) {
 }
 
 export async function getEventById(id) {
-  const events = await getPublishedEvents();
-  return events.find((event) => event.id === id) || null;
+  if (!id) return null;
+  if (!db) {
+    return normalizeEventDocuments(fallbackEvents).find((event) => event.id === id) || null;
+  }
+
+  try {
+    const snap = await getDoc(doc(db, 'events', id));
+    if (!snap.exists()) return null;
+
+    const event = normalizeEventRecord(mapDoc(snap));
+    if (!event) return null;
+    if (event.publishState === 'published') return event;
+
+    if (auth?.currentUser) {
+      const claims = await auth.currentUser.getIdTokenResult().catch(() => null);
+      if (claims?.claims?.admin === true) return event;
+    }
+
+    return null;
+  } catch (error) {
+    if (String(error?.code || '').includes('permission-denied')) return null;
+    throw error;
+  }
 }
 
 export async function saveEvent(event) {
   if (!db) throw new Error('Firebase is not configured.');
   const payload = {
-    ...event,
+    ...normalizeEventRecord(event),
     updatedAt: serverTimestamp()
   };
 

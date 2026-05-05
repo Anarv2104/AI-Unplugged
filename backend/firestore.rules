@@ -27,6 +27,11 @@ service cloud.firestore {
       allow write: if isAdmin();
     }
 
+    match /siteSettings/{settingId} {
+      allow read: if settingId == "home";
+      allow write: if isAdmin();
+    }
+
     match /eventForms/{formId} {
       allow read: if true;
       allow write: if isAdmin();

@@ -38,6 +38,23 @@ const mailProvider = createBrevoProvider({
 const SERVER_VERSION = `local-${Math.floor(Date.now() / 1000)}`;
 const geocodeCache = new Map();
 
+const BUILT_IN_DEFAULT_EVENT_SCHEMA = {
+  id: 'default-event-form',
+  kind: 'event',
+  title: 'Default Event Registration Form',
+  isDefault: true,
+  publishState: 'published',
+  fields: [
+    { id: 'name', type: 'text', label: 'Full name', required: true, placeholder: '' },
+    { id: 'email', type: 'email', label: 'Email', required: true, placeholder: '' },
+    { id: 'role', type: 'select', label: 'Role', required: true, options: ['Student', 'Builder', 'Founder', 'Operator', 'Other'] },
+    { id: 'organization', type: 'text', label: 'Organization / College', required: true },
+    { id: 'building', type: 'textarea', label: 'What are you building right now?', required: true, minLength: 20, helperText: '20-500 characters', placeholder: 'Short and honest. Rough projects count.' },
+    { id: 'whyEvent', type: 'textarea', label: 'Why this event?', required: true, minLength: 15, placeholder: "Be specific. 'To network' is not a reason." },
+    { id: 'social', type: 'url', label: 'LinkedIn / Twitter / Website', required: false, helperText: 'Optional' }
+  ]
+};
+
 const MIME_TYPES = {
   '.html': 'text/html; charset=utf-8',
   '.css': 'text/css; charset=utf-8',
@@ -231,6 +248,14 @@ function buildMapLink(event) {
   }
   const address = normalizeMapAddress(event);
   return address ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(address)}` : '';
+}
+
+function normalizeEntryType(entry) {
+  const value = String(entry || '').trim().toLowerCase();
+  if (value === 'open') return 'open';
+  if (value === 'invite only') return 'invite-only';
+  if (value === 'curated') return 'curated';
+  return 'application';
 }
 
 async function geocodeAddress(address) {
@@ -469,6 +494,7 @@ async function getSchemaForKind({ kind, schemaId }) {
     .get();
 
   if (snap.empty) {
+    if (kind === 'event') return BUILT_IN_DEFAULT_EVENT_SCHEMA;
     throw new HttpError(412, `Default ${kind} schema is missing.`);
   }
 
@@ -636,6 +662,10 @@ async function handleEventRegistration(req, res) {
   if (event.publishState !== 'published') {
     throw new HttpError(412, 'Event is not open for registration.');
   }
+  const entryType = normalizeEntryType(event.entry);
+  if (entryType === 'invite-only') {
+    throw new HttpError(412, 'This event is invite only. Registration is not open through the public attend form.');
+  }
 
   const schema = await getSchemaForKind({ kind: 'event', schemaId: event.formId || null });
   const { normalized, errors } = validateAnswers(schema, answers || {});
@@ -651,10 +681,11 @@ async function handleEventRegistration(req, res) {
     registrationId,
     eventId,
     eventTitle: event.title,
+    entryType,
     formId: schema.id,
     formTitle: schema.title,
     answers: normalized,
-    reviewStatus: 'pending',
+    reviewStatus: entryType === 'open' ? 'accepted' : 'pending',
     source: 'member',
     userId: authContext.uid,
     name: normalized.name || payload.name || '',
@@ -684,27 +715,39 @@ async function handleEventRegistration(req, res) {
       createdAt: now
     }, { merge: true });
 
-    const safeTitle = escapeHtml(event.title || '');
-    const safeId = escapeHtml(registrationId);
-    const displayAddress = normalizeMapAddress(event);
-    const mapLink = buildMapLink(event);
-    const safeAddress = escapeHtml(displayAddress);
-    const safeMapLink = escapeHtml(mapLink);
-    const htmlLocationBlock = displayAddress
-      ? `<p><strong>Location:</strong> ${safeAddress}</p>${mapLink ? `<p><a href="${safeMapLink}">Open directions</a></p>` : ''}`
-      : '';
-    const textLocationBlock = displayAddress
-      ? `\nLocation: ${displayAddress}${mapLink ? `\nDirections: ${mapLink}` : ''}`
-      : '';
-    await mailProvider.sendTransactionalEmail({
-      to: email,
-      subject: `Registration confirmed: ${event.title}`,
-      html: `<p>Your registration for <strong>${safeTitle}</strong> is confirmed.</p><p>Your registration ID is <strong>${safeId}</strong>.</p>${htmlLocationBlock}`,
-      text: `Your registration for ${event.title} is confirmed. Registration ID: ${registrationId}${textLocationBlock}`
-    });
+    try {
+      const safeTitle = escapeHtml(event.title || '');
+      const safeId = escapeHtml(registrationId);
+      const displayAddress = normalizeMapAddress(event);
+      const mapLink = buildMapLink(event);
+      const safeAddress = escapeHtml(displayAddress);
+      const safeMapLink = escapeHtml(mapLink);
+      const htmlLocationBlock = displayAddress
+        ? `<p><strong>Location:</strong> ${safeAddress}</p>${mapLink ? `<p><a href="${safeMapLink}">Open directions</a></p>` : ''}`
+        : '';
+      const textLocationBlock = displayAddress
+        ? `\nLocation: ${displayAddress}${mapLink ? `\nDirections: ${mapLink}` : ''}`
+        : '';
+      const isOpen = entryType === 'open';
+      const subject = isOpen ? `Registration confirmed: ${event.title}` : `Registration received: ${event.title}`;
+      const html = isOpen
+        ? `<p>Your registration for <strong>${safeTitle}</strong> is confirmed.</p><p>Your registration ID is <strong>${safeId}</strong>.</p>${htmlLocationBlock}`
+        : `<p>Your registration for <strong>${safeTitle}</strong> has been received.</p><p>Your registration ID is <strong>${safeId}</strong>.</p><p>We will review your request and email you with the next update.</p>${htmlLocationBlock}`;
+      const text = isOpen
+        ? `Your registration for ${event.title} is confirmed. Registration ID: ${registrationId}${textLocationBlock}`
+        : `Your registration for ${event.title} has been received. Registration ID: ${registrationId}\nWe will review your request and email you with the next update.${textLocationBlock}`;
+      await mailProvider.sendTransactionalEmail({
+        to: email,
+        subject,
+        html,
+        text
+      });
+    } catch (error) {
+      console.error('Registration email failed:', error.message);
+    }
   }
 
-  sendJson(res, 200, { ok: true, id: docRef.id, registrationId });
+  sendJson(res, 200, { ok: true, id: docRef.id, registrationId, entryType, reviewStatus: registration.reviewStatus });
 }
 
 async function handleNodeLeadApplication(req, res) {

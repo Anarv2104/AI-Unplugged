@@ -15,6 +15,72 @@ function parseTimeOnDate(dateString, timeString) {
   return value;
 }
 
+function ensureArray(value) {
+  return Array.isArray(value) ? value : [];
+}
+
+function ensureString(value, fallback = '') {
+  return typeof value === 'string' ? value : fallback;
+}
+
+function ensureNumber(value, fallback = null) {
+  if (value === '' || value === null || value === undefined) return fallback;
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? numeric : fallback;
+}
+
+function normalizeAgenda(value) {
+  return ensureArray(value)
+    .map((item) => ({
+      time: ensureString(item?.time),
+      item: ensureString(item?.item),
+    }))
+    .filter((item) => item.time || item.item);
+}
+
+function normalizeSpeakers(value) {
+  return ensureArray(value)
+    .map((item) => ({
+      name: ensureString(item?.name),
+      role: ensureString(item?.role),
+    }))
+    .filter((item) => item.name || item.role);
+}
+
+export function normalizeEventRecord(event) {
+  if (!event) return null;
+
+  const description = ensureArray(event.description)
+    .map((item) => String(item || '').trim())
+    .filter(Boolean);
+
+  const normalized = {
+    ...event,
+    title: ensureString(event.title, 'Untitled Event'),
+    type: ensureString(event.type, 'Flagship'),
+    format: ensureString(event.format, 'TBA'),
+    entry: ensureString(event.entry, 'Application'),
+    duration: ensureString(event.duration, ''),
+    location: ensureString(event.location, ''),
+    tagline: ensureString(event.tagline, ''),
+    dateDisplay: ensureString(event.dateDisplay, ensureString(event.date, 'Date TBA')),
+    startTime: ensureString(event.startTime),
+    endTime: ensureString(event.endTime),
+    publishState: ensureString(event.publishState, 'draft'),
+    status: ensureString(event.status, 'upcoming'),
+    description,
+    agenda: normalizeAgenda(event.agenda),
+    speakers: normalizeSpeakers(event.speakers),
+    capacity: ensureNumber(event.capacity, null),
+    mapEnabled: Boolean(event.mapEnabled && (event.mapLat != null || event.mapLng != null || event.mapAddress || event.location)),
+    mapLat: ensureNumber(event.mapLat, null),
+    mapLng: ensureNumber(event.mapLng, null),
+    mapAddress: ensureString(event.mapAddress, ''),
+  };
+
+  return normalized;
+}
+
 function parseDurationMinutes(duration) {
   const value = String(duration || '').toLowerCase();
   const hoursMatch = value.match(/(\d+(?:\.\d+)?)\s*hour/);
@@ -100,6 +166,7 @@ export function resolveHomeSpotlightEvents(events, featuredHomeEventIds = [], no
     .map((id) => eligible.find((event) => event.id === id))
     .filter(Boolean);
 
-  const fallback = eligible.filter((event) => !featured.some((picked) => picked.id === event.id));
-  return [...featured, ...fallback].slice(0, 2);
+  if (featured.length > 0) return featured;
+
+  return eligible.slice(0, 2);
 }
