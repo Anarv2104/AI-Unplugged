@@ -35,6 +35,13 @@ import {
   uploadAttachment,
   uploadResourceImage
 } from '../lib/platform';
+import {
+  downloadSkillMarkdown,
+  deleteSkillSubmission,
+  formatSkillFileSize,
+  getAdminSkills,
+  reviewSkillSubmission
+} from '../lib/skilldb';
 
 const TAB_LABELS = {
   overview: 'Overview',
@@ -42,6 +49,7 @@ const TAB_LABELS = {
   'node-lead': 'Node Lead',
   updates: 'Updates',
   resources: 'Resources',
+  skills: 'Skills',
   newsletter: 'Newsletter',
   profile: 'Profile',
   admins: 'Admins'
@@ -81,6 +89,12 @@ const TAB_ICONS = {
     <svg width="15" height="15" viewBox="0 0 16 16" fill="none" aria-hidden="true">
       <rect x="1.5" y="2" width="13" height="12" rx="2" stroke="currentColor" strokeWidth="1.5"/>
       <path d="M4.5 5.5h7M4.5 8h4.5M9.75 10.5l1.4-1.4 1.85 1.85" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+    </svg>
+  ),
+  skills: (
+    <svg width="15" height="15" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+      <rect x="2" y="2" width="12" height="12" rx="3" stroke="currentColor" strokeWidth="1.5"/>
+      <path d="M5 5.5h6M5 8h6M5 10.5h3.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
     </svg>
   ),
   newsletter: (
@@ -283,6 +297,7 @@ export default function AdminPage() {
   const [nodeLeads, setNodeLeads] = useState([]);
   const [updates, setUpdates] = useState([]);
   const [resources, setResources] = useState([]);
+  const [skills, setSkills] = useState([]);
   const [comments, setComments] = useState([]);
   const [subscribers, setSubscribers] = useState([]);
   const [admins, setAdmins] = useState([]);
@@ -337,6 +352,11 @@ export default function AdminPage() {
     () => registrations.filter((item) => !selectedEventExportId || item.eventId === selectedEventExportId),
     [registrations, selectedEventExportId]
   );
+  const skillsByState = useMemo(() => ({
+    pending: skills.filter((skill) => skill.publishState === 'pending'),
+    published: skills.filter((skill) => skill.publishState === 'published'),
+    rejected: skills.filter((skill) => skill.publishState === 'rejected')
+  }), [skills]);
   const registrationStats = useMemo(() => {
     const counts = {
       total: filteredRegistrations.length,
@@ -367,13 +387,14 @@ export default function AdminPage() {
     if (!isAuthenticated || !isAdmin) return;
 
     try {
-      const [nextEvents, nextForms, nextRegistrations, nextNodeLeads, nextUpdates, nextResources, nextComments, nextSubscribers, nextAdmins, nextHomeSettings] = await Promise.all([
+      const [nextEvents, nextForms, nextRegistrations, nextNodeLeads, nextUpdates, nextResources, nextSkills, nextComments, nextSubscribers, nextAdmins, nextHomeSettings] = await Promise.all([
         getAdminEvents(),
         getFormSchemas(),
         getEventRegistrations(),
         getNodeLeadApplications(),
         getAdminUpdates(),
         getAdminResources(),
+        getAdminSkills(),
         getCommentsForAdmin(),
         getSubscribers(),
         listAdmins(),
@@ -386,6 +407,7 @@ export default function AdminPage() {
       setNodeLeads(nextNodeLeads);
       setUpdates(nextUpdates);
       setResources(nextResources);
+      setSkills(nextSkills);
       setComments(nextComments);
       setSubscribers(nextSubscribers);
       setAdmins(nextAdmins);
@@ -1488,6 +1510,116 @@ function selectResource(resource) {
                           onClick={() => {
                             if (!window.confirm(`Delete "${resource.title}"? This cannot be undone.`)) return;
                             deleteDocument('resources', resource.id).then(refreshAll).catch((e) => setError(e?.message || 'Could not delete resource.'));
+                          }}
+                        >
+                          Delete
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          ) : null}
+
+          {tab === 'skills' ? (
+            <div className="admin-section">
+              <div className="dashboard-card skilldb-admin-shell">
+                <div className="admin-inline-actions">
+                  <div>
+                    <h3>SkillDB submissions</h3>
+                    <p className="page-sub" style={{ marginTop: 8 }}>
+                      Review uploaded markdown skills, control public visibility, and manage community submissions without mixing this work into resource metadata.
+                    </p>
+                  </div>
+                  <span className="event-tag">{skills.length} total</span>
+                </div>
+
+                <div className="admin-stats-grid skilldb-admin-summary">
+                  <div className="admin-stat-card">
+                    <div className="admin-stat-number">{skillsByState.pending.length}</div>
+                    <div className="admin-stat-label">Pending</div>
+                  </div>
+                  <div className="admin-stat-card">
+                    <div className="admin-stat-number">{skillsByState.published.length}</div>
+                    <div className="admin-stat-label">Published</div>
+                  </div>
+                  <div className="admin-stat-card">
+                    <div className="admin-stat-number">{skillsByState.rejected.length}</div>
+                    <div className="admin-stat-label">Rejected</div>
+                  </div>
+                </div>
+
+                <div className="admin-list skilldb-admin-list">
+                  {!skills.length ? <div className="empty-state">No SkillDB submissions yet.</div> : null}
+                  {skills.map((skill) => (
+                    <div className="admin-list-row resource-admin-row skilldb-admin-row" key={skill.id}>
+                      <div className="skilldb-admin-copy">
+                        <strong>{skill.fileName}</strong>
+                        <p className="skilldb-admin-line">
+                          {skill.name} · {skill.category} · {formatSkillFileSize(skill.fileSize)}
+                        </p>
+                        <p className="skilldb-admin-subline">
+                          {skill.email}
+                        </p>
+                      </div>
+                      <div className="resource-admin-meta skilldb-admin-meta">
+                        <span className={`resource-status-pill${skill.publishState === 'published' ? ' is-published' : skill.publishState === 'pending' ? '' : ' is-draft'}`}>
+                          {skill.publishState}
+                        </span>
+                        <span className="skilldb-admin-downloads">{skill.downloads || 0} downloads</span>
+                      </div>
+                      <div className="skilldb-admin-actions-wrap">
+                        <div className="admin-row-actions skilldb-admin-actions">
+                          {skill.markdownContent || skill.fileUrl ? (
+                            <button
+                              type="button"
+                              className="btn-secondary btn-small"
+                              onClick={() => {
+                                try {
+                                  downloadSkillMarkdown(skill);
+                                } catch (nextError) {
+                                  setError(nextError?.message || 'Could not download skill.');
+                                }
+                              }}
+                            >
+                              Download
+                            </button>
+                          ) : null}
+                          {skill.publishState !== 'published' ? (
+                            <button
+                              type="button"
+                              className="btn-secondary btn-small"
+                              onClick={() => reviewSkillSubmission(skill.id, 'published', user?.uid).then(refreshAll).catch((e) => setError(e?.message || 'Could not publish skill.'))}
+                            >
+                              Publish
+                            </button>
+                          ) : null}
+                          {skill.publishState !== 'rejected' ? (
+                            <button
+                              type="button"
+                              className="btn-secondary btn-small"
+                              onClick={() => reviewSkillSubmission(skill.id, 'rejected', user?.uid).then(refreshAll).catch((e) => setError(e?.message || 'Could not reject skill.'))}
+                            >
+                              Reject
+                            </button>
+                          ) : null}
+                          {skill.publishState !== 'pending' ? (
+                            <button
+                              type="button"
+                              className="btn-secondary btn-small skilldb-admin-quiet-action"
+                              onClick={() => reviewSkillSubmission(skill.id, 'pending', user?.uid).then(refreshAll).catch((e) => setError(e?.message || 'Could not move skill back to pending.'))}
+                            >
+                              Move to pending
+                            </button>
+                          ) : null}
+                        </div>
+                        <button
+                          type="button"
+                          className="auth-link danger-link skilldb-admin-delete"
+                          onClick={() => {
+                            if (!window.confirm(`Delete "${skill.fileName}"? This cannot be undone.`)) return;
+                            deleteSkillSubmission(skill, user, true).then(refreshAll).catch((e) => setError(e?.message || 'Could not delete skill.'));
                           }}
                         >
                           Delete

@@ -96,6 +96,8 @@ function sortByUpdatedAtDesc(items) {
   return [...items].sort((a, b) => toMillis(b.updatedAt || b.createdAt) - toMillis(a.updatedAt || a.createdAt));
 }
 
+const SKILLDB_RESOURCE_ID = 'skilldb';
+
 async function ensureBootstrapResources() {
   if (!db) return sortByUpdatedAtDesc(fallbackResources.map(normalizeResourceRecord).filter(Boolean));
 
@@ -106,7 +108,56 @@ async function ensureBootstrapResources() {
     getDocs(query(resourcesCollection, limit(1)))
   ]);
 
+  async function ensureSkillDBSeed(markerData = {}) {
+    const skilldbResource = fallbackResources
+      .map(normalizeResourceRecord)
+      .find((resource) => resource?.id === SKILLDB_RESOURCE_ID || resource?.slug === SKILLDB_RESOURCE_ID);
+
+    if (!skilldbResource) return;
+
+    if (markerData.skilldbSeeded === true) {
+      const skilldbRef = doc(db, 'resources', skilldbResource.id || skilldbResource.slug);
+      const skilldbSnap = await getDoc(skilldbRef);
+      if (skilldbSnap.exists()) {
+        const existingSkillDB = normalizeResourceRecord(mapDoc(skilldbSnap));
+        if (!existingSkillDB?.image?.url) {
+          await setDoc(skilldbRef, {
+            image: skilldbResource.image,
+            updatedAt: serverTimestamp()
+          }, { merge: true });
+        }
+      }
+      return;
+    }
+
+    const fullSnap = await getDocs(resourcesCollection);
+    const resources = fullSnap.docs.map(mapDoc).map(normalizeResourceRecord).filter(Boolean);
+    const hasSkillDB = resources.some((resource) => resource.id === SKILLDB_RESOURCE_ID || resource.slug === SKILLDB_RESOURCE_ID);
+
+    if (!hasSkillDB) {
+      await setDoc(doc(db, 'resources', skilldbResource.id || skilldbResource.slug), {
+        ...skilldbResource,
+        createdAt: skilldbResource.createdAt || serverTimestamp(),
+        updatedAt: serverTimestamp()
+      }, { merge: true });
+    } else {
+      const existingSkillDB = resources.find((resource) => resource.id === SKILLDB_RESOURCE_ID || resource.slug === SKILLDB_RESOURCE_ID);
+      if (!existingSkillDB?.image?.url) {
+        await setDoc(doc(db, 'resources', skilldbResource.id || skilldbResource.slug), {
+          image: skilldbResource.image,
+          updatedAt: serverTimestamp()
+        }, { merge: true });
+      }
+    }
+
+    await setDoc(markerRef, {
+      skilldbSeeded: true,
+      updatedAt: serverTimestamp()
+    }, { merge: true });
+  }
+
   if (markerSnap.exists()) {
+    await ensureSkillDBSeed(markerSnap.data() || {});
     const fullSnap = await getDocs(resourcesCollection);
     return sortByUpdatedAtDesc(fullSnap.docs.map(mapDoc).map(normalizeResourceRecord).filter(Boolean));
   }
@@ -116,6 +167,8 @@ async function ensureBootstrapResources() {
       seeded: true,
       updatedAt: serverTimestamp()
     }, { merge: true });
+
+    await ensureSkillDBSeed({ seeded: true });
 
     const fullSnap = await getDocs(resourcesCollection);
     return sortByUpdatedAtDesc(fullSnap.docs.map(mapDoc).map(normalizeResourceRecord).filter(Boolean));
@@ -132,6 +185,7 @@ async function ensureBootstrapResources() {
 
   await setDoc(markerRef, {
     seeded: true,
+    skilldbSeeded: true,
     updatedAt: serverTimestamp()
   }, { merge: true });
 

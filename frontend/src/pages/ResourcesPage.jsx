@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import PageHeader from '../components/PageHeader';
 import SEO, { SITE_URL } from '../components/SEO';
 import { getPublishedResources } from '../lib/platform';
 
 export default function ResourcesPage() {
+  const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const [resources, setResources] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -14,7 +15,9 @@ export default function ResourcesPage() {
   useEffect(() => {
     document.title = 'Resources - AI Unplugged';
     getPublishedResources()
-      .then((items) => setResources(items))
+      .then((items) => {
+        setResources(items);
+      })
       .finally(() => setLoading(false));
   }, []);
 
@@ -183,9 +186,7 @@ export default function ResourcesPage() {
               <div>
                 <h2>{selectedResource.title}</h2>
               </div>
-              <button type="button" className="auth-link" onClick={closeResource}>
-                Close
-              </button>
+              <button type="button" className="auth-close resource-modal-close" aria-label="Close resource" onClick={closeResource}>×</button>
             </div>
 
             <div className="resource-modal-body">
@@ -210,14 +211,27 @@ export default function ResourcesPage() {
                   </div>
                 )}
                 {selectedResource.ctaUrl ? (
-                  <a
-                    href={selectedResource.ctaUrl}
-                    className="btn-primary resource-modal-cta"
-                    target="_blank"
-                    rel="noopener"
-                  >
-                    {selectedResource.ctaLabel || 'Open resource'} <span className="btn-arrow">&rarr;</span>
-                  </a>
+                  selectedResource.ctaUrl.startsWith('/') ? (
+                    <button
+                      type="button"
+                      className="btn-primary resource-modal-cta"
+                      onClick={() => {
+                        closeResource();
+                        navigate(selectedResource.ctaUrl);
+                      }}
+                    >
+                      {selectedResource.ctaLabel || 'Open resource'} <span className="btn-arrow">&rarr;</span>
+                    </button>
+                  ) : (
+                    <a
+                      href={selectedResource.ctaUrl}
+                      className="btn-primary resource-modal-cta"
+                      target="_blank"
+                      rel="noopener"
+                    >
+                      {selectedResource.ctaLabel || 'Open resource'} <span className="btn-arrow">&rarr;</span>
+                    </a>
+                  )
                 ) : null}
               </div>
             </div>

@@ -90,6 +90,28 @@ export const fallbackUpdates = [
 
 export const fallbackResources = [
   {
+    id: 'skilldb',
+    slug: 'skilldb',
+    title: 'SkillDB',
+    excerpt: 'Publish, review, browse, and download Claude skill markdown files inside AI Unplugged.',
+    body: [
+      'SkillDB is AI Unplugged’s internal archive for Claude skill markdown files. Builders can upload reusable skills, operators can review what is already working in the wild, and teams can download the exact markdown file instead of browsing a vague summary.',
+      'Every submission moves through pending review before it appears publicly. Once approved, skills become searchable by category, contributor, use case, and file metadata inside the dedicated SkillDB page.',
+      'If you want a cleaner way to share practical Claude skills without points, badges, or noise, SkillDB is the resource layer built for that job.'
+    ],
+    bodyHtml: '<p>SkillDB is AI Unplugged’s internal archive for Claude skill markdown files. Builders can upload reusable skills, operators can review what is already working in the wild, and teams can download the exact markdown file instead of browsing a vague summary.</p><p>Every submission moves through pending review before it appears publicly. Once approved, skills become searchable by category, contributor, use case, and file metadata inside the dedicated SkillDB page.</p><p>If you want a cleaner way to share practical Claude skills without points, badges, or noise, SkillDB is the resource layer built for that job.</p>',
+    ctaLabel: 'Open SkillDB',
+    ctaUrl: '/resources/skilldb',
+    image: {
+      url: '/skilldb-logo.svg',
+      name: 'SkillDB',
+      mimeType: 'image/svg+xml'
+    },
+    publishState: 'published',
+    createdAt: '2026-05-06T12:00:00.000Z',
+    updatedAt: '2026-05-06T12:00:00.000Z'
+  },
+  {
     id: 'skill-vault',
     slug: 'skill-vault',
     title: 'Skill Vault',

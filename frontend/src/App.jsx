@@ -15,6 +15,7 @@ const NodeLeadPage = lazy(() => import('./pages/NodeLeadPage'));
 const DashboardPage = lazy(() => import('./pages/DashboardPage'));
 const ProfilePage = lazy(() => import('./pages/ProfilePage'));
 const ResourcesPage = lazy(() => import('./pages/ResourcesPage'));
+const SkillDBPage = lazy(() => import('./pages/SkillDBPage'));
 const ThankYouPage = lazy(() => import('./pages/ThankYouPage'));
 const UpdateDetailPage = lazy(() => import('./pages/UpdateDetailPage'));
 const UpdatesPage = lazy(() => import('./pages/UpdatesPage'));
@@ -60,6 +61,7 @@ function AppRoutes() {
             <Route path="/dashboard" element={<DashboardPage />} />
             <Route path="/event" element={<EventDetailPage />} />
             <Route path="/resources" element={<ResourcesPage />} />
+            <Route path="/resources/skilldb" element={<SkillDBPage />} />
             <Route path="/attend" element={<ApplyPage />} />
             <Route path="/apply" element={<LegacyApplyRedirect />} />
             <Route path="/become-a-host" element={<HostPage />} />

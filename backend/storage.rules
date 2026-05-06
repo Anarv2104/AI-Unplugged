@@ -1,0 +1,28 @@
+rules_version = '2';
+
+service firebase.storage {
+  match /b/{bucket}/o {
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isAdmin() {
+      return request.auth != null && request.auth.token.admin == true;
+    }
+
+    match /skills/{userId}/{skillId}/{fileName} {
+      allow write: if isSignedIn() && (request.auth.uid == userId || isAdmin());
+      allow read: if true;
+    }
+
+    match /resources/{resourceId}/media/{fileName} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    match /updates/{updateId}/attachments/{fileName} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+  }
+}

@@ -37,6 +37,8 @@ const mailProvider = createBrevoProvider({
 });
 const SERVER_VERSION = `local-${Math.floor(Date.now() / 1000)}`;
 const geocodeCache = new Map();
+const SKILL_MAX_FILE_SIZE = 2 * 1024 * 1024;
+const SKILLDB_META_DOC_ID = '__skilldb_meta__';
 
 const BUILT_IN_DEFAULT_EVENT_SCHEMA = {
   id: 'default-event-form',
@@ -139,8 +141,13 @@ function initializeFirebaseAdmin() {
       }
 
       const serviceAccount = JSON.parse(fs.readFileSync(serviceAccountPath, 'utf8'));
+      const storageBucket =
+        process.env.FIREBASE_STORAGE_BUCKET ||
+        serviceAccount.storageBucket ||
+        (serviceAccount.project_id ? `${serviceAccount.project_id}.firebasestorage.app` : '');
       admin.initializeApp({
-        credential: admin.credential.cert(serviceAccount)
+        credential: admin.credential.cert(serviceAccount),
+        storageBucket
       });
     }
 
@@ -256,6 +263,17 @@ function normalizeEntryType(entry) {
   if (value === 'invite only') return 'invite-only';
   if (value === 'curated') return 'curated';
   return 'application';
+}
+
+function getServerCapabilities() {
+  return {
+    skilldbUploadApi: true,
+    routes: {
+      createSkill: '/api/platform/skills',
+      updateSkill: '/api/platform/skills/:id',
+      deleteSkill: '/api/platform/skills/:id'
+    }
+  };
 }
 
 async function geocodeAddress(address) {
@@ -414,6 +432,23 @@ function requireDb() {
   }
 }
 
+function getStorageBucket() {
+  requireDb();
+  try {
+    const bucket = admin.storage().bucket();
+    if (!bucket?.name) {
+      throw new Error('Missing bucket name');
+    }
+    return bucket;
+  } catch (error) {
+    throw new HttpError(503, 'Firebase Storage is not configured for the backend runtime. Add FIREBASE_STORAGE_BUCKET to backend/.env and restart the backend.');
+  }
+}
+
+function buildStorageDownloadUrl(bucketName, filePath) {
+  return `https://firebasestorage.googleapis.com/v0/b/${bucketName}/o/${encodeURIComponent(filePath)}?alt=media`;
+}
+
 async function getAuthContext(req, { optional = false } = {}) {
   requireDb();
   const authHeader = req.headers.authorization || '';
@@ -434,6 +469,253 @@ async function getAuthContext(req, { optional = false } = {}) {
     if (optional) return null;
     throw new HttpError(401, 'Your session is invalid. Please log in again.');
   }
+}
+
+function readRawBody(req, maxBytes = 5 * 1024 * 1024) {
+  return new Promise((resolve, reject) => {
+    const chunks = [];
+    let total = 0;
+    req.on('data', (chunk) => {
+      total += chunk.length;
+      if (total > maxBytes) {
+        reject(new HttpError(413, 'Upload is too large.'));
+        req.destroy();
+        return;
+      }
+      chunks.push(chunk);
+    });
+    req.on('end', () => resolve(Buffer.concat(chunks)));
+    req.on('error', () => reject(new HttpError(400, 'Could not read request body.')));
+  });
+}
+
+async function readMultipartForm(req) {
+  const contentType = String(req.headers['content-type'] || '');
+  const boundaryMatch = contentType.match(/boundary=(?:"([^"]+)"|([^;]+))/i);
+  if (!boundaryMatch) throw new HttpError(400, 'Multipart boundary is missing.');
+  const boundary = `--${boundaryMatch[1] || boundaryMatch[2]}`;
+  const bodyBuffer = await readRawBody(req);
+  const raw = bodyBuffer.toString('latin1');
+  const segments = raw.split(boundary).slice(1, -1);
+  const fields = {};
+  const files = {};
+
+  for (let segment of segments) {
+    segment = segment.replace(/^\r\n/, '').replace(/\r\n$/, '');
+    if (!segment) continue;
+    const separatorIndex = segment.indexOf('\r\n\r\n');
+    if (separatorIndex === -1) continue;
+    const headerRaw = segment.slice(0, separatorIndex);
+    let contentRaw = segment.slice(separatorIndex + 4);
+    if (contentRaw.endsWith('\r\n')) contentRaw = contentRaw.slice(0, -2);
+
+    const headers = {};
+    for (const line of headerRaw.split('\r\n')) {
+      const headerIndex = line.indexOf(':');
+      if (headerIndex === -1) continue;
+      headers[line.slice(0, headerIndex).trim().toLowerCase()] = line.slice(headerIndex + 1).trim();
+    }
+
+    const disposition = headers['content-disposition'] || '';
+    const nameMatch = disposition.match(/name="([^"]+)"/i);
+    if (!nameMatch) continue;
+    const fieldName = nameMatch[1];
+    const fileNameMatch = disposition.match(/filename="([^"]*)"/i);
+
+    if (fileNameMatch) {
+      files[fieldName] = {
+        filename: fileNameMatch[1],
+        mimeType: headers['content-type'] || 'application/octet-stream',
+        buffer: Buffer.from(contentRaw, 'latin1')
+      };
+    } else {
+      fields[fieldName] = Buffer.from(contentRaw, 'latin1').toString('utf8');
+    }
+  }
+
+  return { fields, files };
+}
+
+function safeStorageFileName(name) {
+  return String(name || 'skill.md').replace(/[^a-z0-9._-]/gi, '_');
+}
+
+function ensureSkillMarkdownFile(file, { required = true } = {}) {
+  if (!file) {
+    if (required) throw new HttpError(400, 'A Markdown file is required.');
+    return null;
+  }
+  const fileName = String(file.filename || '').trim();
+  if (!fileName.toLowerCase().endsWith('.md')) {
+    throw new HttpError(400, 'Only .md Markdown files are allowed.');
+  }
+  if (!file.buffer?.length) {
+    throw new HttpError(400, 'The uploaded Markdown file is empty.');
+  }
+  if (file.buffer.length > SKILL_MAX_FILE_SIZE) {
+    throw new HttpError(400, 'The Markdown file must be 2 MB or smaller.');
+  }
+  return file;
+}
+
+function normalizeSkillFields(fields) {
+  return {
+    name: String(fields.name || '').trim(),
+    phone: String(fields.phone || '').trim(),
+    email: String(fields.email || '').trim(),
+    category: String(fields.category || '').trim(),
+    description: String(fields.description || '').trim(),
+    useCase: String(fields.useCase || '').trim()
+  };
+}
+
+function validateSkillFields(fields) {
+  if (!fields.name) throw new HttpError(400, 'Name is required.');
+  if (!fields.email) throw new HttpError(400, 'Email is required.');
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(fields.email)) {
+    throw new HttpError(400, 'Please enter a valid email address.');
+  }
+  if (!fields.category) throw new HttpError(400, 'Category is required.');
+  if (!fields.description) throw new HttpError(400, 'Description is required.');
+  if (!fields.useCase) throw new HttpError(400, 'Use case is required.');
+}
+
+async function uploadSkillFileViaAdmin({ userId, skillId, file }) {
+  const bucket = getStorageBucket();
+  const filePath = `skills/${userId}/${skillId}/${Date.now()}-${safeStorageFileName(file.filename)}`;
+  await bucket.file(filePath).save(file.buffer, {
+    resumable: false,
+    contentType: file.mimeType || 'text/markdown'
+  });
+  return {
+    fileName: file.filename,
+    fileSize: file.buffer.length,
+    filePath,
+    fileUrl: buildStorageDownloadUrl(bucket.name, filePath)
+  };
+}
+
+async function ensureSkillsBootstrapDoc() {
+  requireDb();
+  await db.collection('skills').doc(SKILLDB_META_DOC_ID).set({
+    kind: 'meta',
+    label: 'SkillDB bootstrap',
+    createdAt: admin.firestore.FieldValue.serverTimestamp(),
+    updatedAt: admin.firestore.FieldValue.serverTimestamp()
+  }, { merge: true });
+}
+
+async function deleteSkillFileViaAdmin(filePath) {
+  if (!filePath) return;
+  const bucket = getStorageBucket();
+  await bucket.file(filePath).delete({ ignoreNotFound: true }).catch(() => {});
+}
+
+async function handleCreateSkill(req, res) {
+  requireDb();
+  const authContext = await getAuthContext(req);
+  await ensureSkillsBootstrapDoc();
+  const { fields, files } = await readMultipartForm(req);
+  const normalizedFields = normalizeSkillFields(fields);
+  validateSkillFields(normalizedFields);
+  const uploadFile = ensureSkillMarkdownFile(files.file, { required: true });
+
+  const skillRef = db.collection('skills').doc();
+  const upload = await uploadSkillFileViaAdmin({
+    userId: authContext.uid,
+    skillId: skillRef.id,
+    file: uploadFile
+  });
+  const now = admin.firestore.FieldValue.serverTimestamp();
+
+  await skillRef.set({
+    kind: 'skill',
+    ...normalizedFields,
+    ...upload,
+    userId: authContext.uid,
+    publishState: 'pending',
+    downloads: 0,
+    reviewedAt: null,
+    reviewedBy: null,
+    createdAt: now,
+    updatedAt: now
+  });
+
+  sendJson(res, 200, {
+    ok: true,
+    id: skillRef.id,
+    skillId: skillRef.id,
+    publishState: 'pending',
+    status: 'submitted',
+    message: 'Thank you. Your skill has been submitted for review.',
+    subMessage: 'It is now in the approval queue. Once an admin publishes it, it will appear on the SkillDB dashboard for everyone to browse and download.'
+  });
+}
+
+async function handleUpdateSkill(req, res, skillId) {
+  requireDb();
+  const authContext = await getAuthContext(req);
+  await ensureSkillsBootstrapDoc();
+  const skillRef = db.collection('skills').doc(skillId);
+  const existingSnap = await skillRef.get();
+  if (!existingSnap.exists) throw new HttpError(404, 'Skill not found.');
+  const existing = { id: existingSnap.id, ...existingSnap.data() };
+  if (existing.kind === 'meta') throw new HttpError(400, 'Invalid skill record.');
+  if (existing.userId !== authContext.uid) throw new HttpError(403, 'You can only edit your own submissions.');
+
+  const { fields, files } = await readMultipartForm(req);
+  const normalizedFields = normalizeSkillFields(fields);
+  validateSkillFields(normalizedFields);
+  const uploadFile = ensureSkillMarkdownFile(files.file, { required: false });
+
+  let upload = {};
+  if (uploadFile) {
+    await deleteSkillFileViaAdmin(existing.filePath);
+    upload = await uploadSkillFileViaAdmin({
+      userId: authContext.uid,
+      skillId,
+      file: uploadFile
+    });
+  }
+
+  await skillRef.set({
+    kind: 'skill',
+    ...normalizedFields,
+    ...upload,
+    userId: existing.userId,
+    publishState: 'pending',
+    reviewedAt: null,
+    reviewedBy: null,
+    updatedAt: admin.firestore.FieldValue.serverTimestamp()
+  }, { merge: true });
+
+  sendJson(res, 200, {
+    ok: true,
+    id: skillId,
+    skillId,
+    publishState: 'pending',
+    status: 'submitted',
+    message: 'Thank you. Your updated skill has been submitted for review.',
+    subMessage: 'The updated version is back in the approval queue and will replace the public version after an admin publishes it.'
+  });
+}
+
+async function handleDeleteSkill(req, res, skillId) {
+  requireDb();
+  const authContext = await getAuthContext(req);
+  const skillRef = db.collection('skills').doc(skillId);
+  const existingSnap = await skillRef.get();
+  if (!existingSnap.exists) throw new HttpError(404, 'Skill not found.');
+  const existing = { id: existingSnap.id, ...existingSnap.data() };
+  if (existing.kind === 'meta') throw new HttpError(400, 'Invalid skill record.');
+  const isAdmin = authContext.token.admin === true;
+  if (!isAdmin && existing.userId !== authContext.uid) {
+    throw new HttpError(403, 'You can only delete your own submissions.');
+  }
+
+  await deleteSkillFileViaAdmin(existing.filePath);
+  await skillRef.delete();
+  sendJson(res, 200, { ok: true, id: skillId });
 }
 
 async function requireAdminAuth(req) {
@@ -1003,6 +1285,7 @@ async function handleSyncCurrentUser(req, res) {
   const authContext = await getAuthContext(req);
   const userRecord = await admin.auth().getUser(authContext.uid);
   const bootstrapApplied = await applyBootstrapAdminIfNeeded(userRecord);
+  await ensureSkillsBootstrapDoc();
 
   const profileRef = db.collection('users').doc(authContext.uid);
   const existingProfile = await profileRef.get();
@@ -1073,7 +1356,8 @@ async function handleSetupStatus(req, res) {
     mailProvider: mailProvider.providerName,
     warnings: getSetupWarnings(),
     diagnostics: getSetupDiagnostics(),
-    version: SERVER_VERSION
+    version: SERVER_VERSION,
+    capabilities: getServerCapabilities()
   });
 }
 
@@ -1214,7 +1498,12 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (req.method === 'GET' && url.pathname === '/api/platform/health') {
-      sendJson(res, 200, { ok: true, version: SERVER_VERSION, diagnostics: getSetupDiagnostics() });
+      sendJson(res, 200, {
+        ok: true,
+        version: SERVER_VERSION,
+        diagnostics: getSetupDiagnostics(),
+        capabilities: getServerCapabilities()
+      });
       return;
     }
 
@@ -1275,6 +1564,22 @@ const server = http.createServer(async (req, res) => {
 
     if (req.method === 'POST' && url.pathname === '/api/platform/updates') {
       await handleSaveUpdate(req, res);
+      return;
+    }
+
+    if (req.method === 'POST' && url.pathname === '/api/platform/skills') {
+      await handleCreateSkill(req, res);
+      return;
+    }
+
+    const skillRouteMatch = url.pathname.match(/^\/api\/platform\/skills\/([^/]+)$/);
+    if (skillRouteMatch && req.method === 'PUT') {
+      await handleUpdateSkill(req, res, decodeURIComponent(skillRouteMatch[1]));
+      return;
+    }
+
+    if (skillRouteMatch && req.method === 'DELETE') {
+      await handleDeleteSkill(req, res, decodeURIComponent(skillRouteMatch[1]));
       return;
     }
   } catch (error) {
