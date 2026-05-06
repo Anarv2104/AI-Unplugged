@@ -9,6 +9,7 @@ import {
   exportDatasetForEvent,
   geocodeAddress,
   getAdminEvents,
+  getAdminResources,
   getAdminUpdates,
   getCommentsForAdmin,
   getEventRegistrations,
@@ -25,12 +26,14 @@ import {
   saveEvent,
   saveFormSchema,
   saveHomeSpotlightSettings,
+  saveResource,
   saveUpdatePost,
   sendNewsletterCampaign,
   updateNewsletterPreference,
   updateCommentStatus,
   updateReviewStatus,
-  uploadAttachment
+  uploadAttachment,
+  uploadResourceImage
 } from '../lib/platform';
 
 const TAB_LABELS = {
@@ -38,6 +41,7 @@ const TAB_LABELS = {
   events: 'Events',
   'node-lead': 'Node Lead',
   updates: 'Updates',
+  resources: 'Resources',
   newsletter: 'Newsletter',
   profile: 'Profile',
   admins: 'Admins'
@@ -71,6 +75,12 @@ const TAB_ICONS = {
     <svg width="15" height="15" viewBox="0 0 16 16" fill="none" aria-hidden="true">
       <rect x="2" y="1" width="12" height="14" rx="2" stroke="currentColor" strokeWidth="1.5"/>
       <path d="M5 5h6M5 8h6M5 11h4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+    </svg>
+  ),
+  resources: (
+    <svg width="15" height="15" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+      <rect x="1.5" y="2" width="13" height="12" rx="2" stroke="currentColor" strokeWidth="1.5"/>
+      <path d="M4.5 5.5h7M4.5 8h4.5M9.75 10.5l1.4-1.4 1.85 1.85" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
     </svg>
   ),
   newsletter: (
@@ -142,6 +152,20 @@ function emptyEventDraft() {
     mapLat: DEFAULT_MAP_LAT,
     mapLng: DEFAULT_MAP_LNG,
     mapAddress: DEFAULT_MAP_ADDRESS
+  };
+}
+
+function emptyResourceDraft() {
+  return {
+    id: '',
+    title: '',
+    slug: '',
+    excerpt: '',
+    bodyHtml: '',
+    ctaLabel: 'Open resource',
+    ctaUrl: '',
+    image: null,
+    publishState: 'draft'
   };
 }
 
@@ -258,6 +282,7 @@ export default function AdminPage() {
   const [registrations, setRegistrations] = useState([]);
   const [nodeLeads, setNodeLeads] = useState([]);
   const [updates, setUpdates] = useState([]);
+  const [resources, setResources] = useState([]);
   const [comments, setComments] = useState([]);
   const [subscribers, setSubscribers] = useState([]);
   const [admins, setAdmins] = useState([]);
@@ -275,10 +300,12 @@ export default function AdminPage() {
   const [nodeLeadMode, setNodeLeadMode] = useState('default');
   const [nodeLeadSchema, setNodeLeadSchema] = useState(defaultNodeLeadFormSchema);
   const [updateDraft, setUpdateDraft] = useState({ id: '', title: '', slug: '', excerpt: '', bodyHtml: '', category: 'update', commentMode: 'moderated', publishState: 'draft', authorName: 'AI Unplugged Team', scope: 'general', eventId: '', attachments: [] });
+  const [resourceDraft, setResourceDraft] = useState(emptyResourceDraft());
   const [newsletterDraft, setNewsletterDraft] = useState({ subject: '', html: '', text: '' });
   const [newsletterRecipientsUpload, setNewsletterRecipientsUpload] = useState(null);
   const [adminDraftEmail, setAdminDraftEmail] = useState('');
   const [isUploadingAttachment, setIsUploadingAttachment] = useState(false);
+  const [isUploadingResourceImage, setIsUploadingResourceImage] = useState(false);
   const [isGeocoding, setIsGeocoding] = useState(false);
   const [selectedEventExportId, setSelectedEventExportId] = useState('');
   const [selectedUpdateId, setSelectedUpdateId] = useState('');
@@ -340,12 +367,13 @@ export default function AdminPage() {
     if (!isAuthenticated || !isAdmin) return;
 
     try {
-      const [nextEvents, nextForms, nextRegistrations, nextNodeLeads, nextUpdates, nextComments, nextSubscribers, nextAdmins, nextHomeSettings] = await Promise.all([
+      const [nextEvents, nextForms, nextRegistrations, nextNodeLeads, nextUpdates, nextResources, nextComments, nextSubscribers, nextAdmins, nextHomeSettings] = await Promise.all([
         getAdminEvents(),
         getFormSchemas(),
         getEventRegistrations(),
         getNodeLeadApplications(),
         getAdminUpdates(),
+        getAdminResources(),
         getCommentsForAdmin(),
         getSubscribers(),
         listAdmins(),
@@ -357,6 +385,7 @@ export default function AdminPage() {
       setRegistrations(nextRegistrations);
       setNodeLeads(nextNodeLeads);
       setUpdates(nextUpdates);
+      setResources(nextResources);
       setComments(nextComments);
       setSubscribers(nextSubscribers);
       setAdmins(nextAdmins);
@@ -440,6 +469,20 @@ export default function AdminPage() {
     const schema = eventForms.find((item) => item.id === event.formId);
     setEventCustomSchema(schema || schemaFromEvent(event));
     setEventsSubTab('events');
+  }
+
+function selectResource(resource) {
+    setResourceDraft({
+      id: resource.id || '',
+      title: resource.title || '',
+      slug: resource.slug || '',
+      excerpt: resource.excerpt || '',
+      bodyHtml: resource.bodyHtml || (resource.body || []).map((paragraph) => `<p>${paragraph}</p>`).join(''),
+      ctaLabel: resource.ctaLabel || 'Open resource',
+      ctaUrl: resource.ctaUrl || '',
+      image: resource.image || null,
+      publishState: resource.publishState || 'draft'
+    });
   }
 
   async function resolveEventMapAddress(addressInput) {
@@ -625,6 +668,41 @@ export default function AdminPage() {
       refreshAll();
     } catch (nextError) {
       setError(nextError?.message || 'Could not save update.');
+    } finally {
+      setIsSaving(false);
+    }
+  }
+
+  async function handleResourceImageUpload(file) {
+    if (!file) return;
+    setIsUploadingResourceImage(true);
+    resetMessages();
+    try {
+      const image = await uploadResourceImage(file, resourceDraft.id || resourceDraft.slug || 'draft');
+      setResourceDraft((current) => ({ ...current, image }));
+      setMessage('Resource image uploaded.');
+    } catch (nextError) {
+      setError(nextError?.message || 'Could not upload resource image.');
+    } finally {
+      setIsUploadingResourceImage(false);
+    }
+  }
+
+  async function handleSaveResource(event) {
+    event.preventDefault();
+    resetMessages();
+    setIsSaving(true);
+    try {
+      await saveResource({
+        ...resourceDraft,
+        slug: resourceDraft.slug || resourceDraft.title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, ''),
+        body: htmlToParagraphs(resourceDraft.bodyHtml)
+      });
+      setResourceDraft(emptyResourceDraft());
+      setMessage('Resource saved.');
+      refreshAll();
+    } catch (nextError) {
+      setError(nextError?.message || 'Could not save resource.');
     } finally {
       setIsSaving(false);
     }
@@ -968,10 +1046,30 @@ export default function AdminPage() {
                     <h3>Current events</h3>
                     <div className="admin-list">
                       {sortedEvents.map((item) => (
-                        <button type="button" className="admin-list-row" key={item.id} onClick={() => selectEvent(item)}>
-                          <span>{item.title}</span>
-                          <span>{formatEventStatusLabel(item)}</span>
-                        </button>
+                        <div className="admin-list-row content-admin-row" key={item.id}>
+                          <div>
+                            <strong>{item.title}</strong>
+                            <p style={{ margin: '6px 0 0', color: 'var(--gray-2)', fontSize: '0.84rem' }}>
+                              {formatEventStatusLabel(item)} · {item.publishState} · {item.dateDisplay || 'Date not set'}
+                            </p>
+                          </div>
+                          <span>{item.entry || 'Application'}</span>
+                          <div className="admin-row-actions">
+                            <button type="button" className="btn-secondary btn-small" onClick={() => selectEvent(item)}>
+                              Edit
+                            </button>
+                            <button
+                              type="button"
+                              className="auth-link danger-link"
+                              onClick={() => {
+                                if (!window.confirm(`Delete "${item.title}"? This cannot be undone.`)) return;
+                                deleteDocument('events', item.id).then(refreshAll).catch((e) => setError(e?.message || 'Could not delete event.'));
+                              }}
+                            >
+                              Delete
+                            </button>
+                          </div>
+                        </div>
                       ))}
                       {!sortedEvents.length ? <div className="empty-state">No events yet. Create one above.</div> : null}
                     </div>
@@ -1206,12 +1304,27 @@ export default function AdminPage() {
                     <div className="admin-list">
                       {!updates.length ? <div className="empty-state">No posts yet. Create one above.</div> : null}
                       {updates.map((post) => (
-                        <div className="admin-list-row" key={post.id}>
-                          <button type="button" onClick={() => setUpdateDraft({ ...post, scope: post.scope || 'general', eventId: post.eventId || '', attachments: post.attachments || [], bodyHtml: post.bodyHtml || (post.body || []).map((paragraph) => `<p>${paragraph}</p>`).join('') })}>{post.title}</button>
-                          <button type="button" className="auth-link" onClick={() => {
-                            if (!window.confirm(`Delete "${post.title}"? This cannot be undone.`)) return;
-                            deleteDocument('updates', post.id).then(refreshAll).catch((e) => setError(e?.message || 'Could not delete post.'));
-                          }}>Delete</button>
+                        <div className="admin-list-row content-admin-row" key={post.id}>
+                          <div>
+                            <strong>{post.title}</strong>
+                            <p style={{ margin: '6px 0 0', color: 'var(--gray-2)', fontSize: '0.84rem' }}>
+                              {post.publishState} · {post.scope || 'general'}{post.scope === 'event' && post.eventId ? ` · ${sortedEvents.find((item) => item.id === post.eventId)?.title || 'Event'}` : ''}
+                            </p>
+                          </div>
+                          <span>{post.category}</span>
+                          <div className="admin-row-actions">
+                            <button
+                              type="button"
+                              className="btn-secondary btn-small"
+                              onClick={() => setUpdateDraft({ ...post, scope: post.scope || 'general', eventId: post.eventId || '', attachments: post.attachments || [], bodyHtml: post.bodyHtml || (post.body || []).map((paragraph) => `<p>${paragraph}</p>`).join('') })}
+                            >
+                              Edit
+                            </button>
+                            <button type="button" className="auth-link danger-link" onClick={() => {
+                              if (!window.confirm(`Delete "${post.title}"? This cannot be undone.`)) return;
+                              deleteDocument('updates', post.id).then(refreshAll).catch((e) => setError(e?.message || 'Could not delete post.'));
+                            }}>Delete</button>
+                          </div>
                         </div>
                       ))}
                     </div>
@@ -1259,6 +1372,131 @@ export default function AdminPage() {
                   </div>
                 </div>
               ) : null}
+            </div>
+          ) : null}
+
+          {/* RESOURCES */}
+          {tab === 'resources' ? (
+            <div className="admin-section">
+              <form className="form-card" onSubmit={handleSaveResource}>
+                <h3>{resourceDraft.id ? 'Edit resource' : 'Create resource'}</h3>
+                <div className="form-field field-inline-2">
+                  <div className="form-field">
+                    <label className="form-label">Title</label>
+                    <input className="form-input" value={resourceDraft.title} onChange={(e) => setResourceDraft((current) => ({ ...current, title: e.target.value }))} />
+                  </div>
+                  <div className="form-field">
+                    <label className="form-label">Slug</label>
+                    <input className="form-input" value={resourceDraft.slug} onChange={(e) => setResourceDraft((current) => ({ ...current, slug: e.target.value }))} />
+                  </div>
+                </div>
+                <div className="form-field">
+                  <label className="form-label">Publish state</label>
+                  <select className="form-select" value={resourceDraft.publishState} onChange={(e) => setResourceDraft((current) => ({ ...current, publishState: e.target.value }))}>
+                    <option value="draft">draft</option>
+                    <option value="published">published</option>
+                  </select>
+                </div>
+                <div className="form-field">
+                  <label className="form-label">Card description</label>
+                  <textarea className="form-textarea" value={resourceDraft.excerpt} onChange={(e) => setResourceDraft((current) => ({ ...current, excerpt: e.target.value }))} />
+                </div>
+                <div className="form-field">
+                  <label className="form-label">Resource detail body</label>
+                  <RichTextEditor value={resourceDraft.bodyHtml} onChange={(value) => setResourceDraft((current) => ({ ...current, bodyHtml: value }))} />
+                </div>
+                <div className="form-field field-inline-2">
+                  <div className="form-field">
+                    <label className="form-label">CTA label</label>
+                    <input className="form-input" value={resourceDraft.ctaLabel} onChange={(e) => setResourceDraft((current) => ({ ...current, ctaLabel: e.target.value }))} />
+                  </div>
+                  <div className="form-field">
+                    <label className="form-label">CTA URL</label>
+                    <input className="form-input" value={resourceDraft.ctaUrl} onChange={(e) => setResourceDraft((current) => ({ ...current, ctaUrl: e.target.value }))} />
+                  </div>
+                </div>
+                <div className="dashboard-card">
+                  <h3>Resource image</h3>
+                  <p className="page-sub" style={{ marginBottom: 14 }}>
+                    Best result: around 1600 x 900 px. Transparent PNG or SVG is preferred. Wide logos are fitted and centered inside the frame instead of being cropped.
+                  </p>
+                  <input
+                    type="file"
+                    accept="image/*"
+                    disabled={isUploadingResourceImage}
+                    onChange={(e) => e.target.files?.[0] && handleResourceImageUpload(e.target.files[0])}
+                  />
+                  {isUploadingResourceImage ? <p className="attachment-uploading">Uploading...</p> : null}
+                  {resourceDraft.image?.url ? (
+                    <div className="resource-admin-preview">
+                      <img src={resourceDraft.image.url} alt={resourceDraft.image.name || resourceDraft.title || 'Resource preview'} />
+                      <div className="resource-admin-preview-copy">
+                        <strong>{resourceDraft.image.name || 'Uploaded image'}</strong>
+                        <p>{resourceDraft.image.mimeType || 'image'}</p>
+                        <button type="button" className="auth-link" onClick={() => setResourceDraft((current) => ({ ...current, image: null }))}>Remove image</button>
+                      </div>
+                    </div>
+                  ) : (
+                    <p className="page-sub" style={{ marginTop: 12 }}>Upload a logo or feature image. The full logo stays visible on the public card, modal, and admin preview.</p>
+                  )}
+                </div>
+                <div className="admin-inline-actions">
+                  <button type="submit" className="btn-primary" disabled={isSaving || isUploadingResourceImage}>
+                    {isSaving ? 'Saving...' : resourceDraft.id ? 'Update Resource' : 'Save Resource'}
+                  </button>
+                  {resourceDraft.id ? (
+                    <button type="button" className="btn-secondary" onClick={() => setResourceDraft(emptyResourceDraft())}>
+                      Clear
+                    </button>
+                  ) : null}
+                </div>
+              </form>
+
+              <div className="dashboard-card">
+                <div className="admin-inline-actions">
+                  <div>
+                    <h3>Current resources</h3>
+                    <p className="page-sub" style={{ marginTop: 8 }}>
+                      Published resources are visible on the public resources page. Draft resources stay internal until you publish them.
+                    </p>
+                  </div>
+                  <span className="event-tag">{resources.length} total</span>
+                </div>
+                <div className="admin-list">
+                  {!resources.length ? <div className="empty-state">No resources yet. Create one above.</div> : null}
+                  {resources.map((resource) => (
+                    <div className="admin-list-row resource-admin-row" key={resource.id}>
+                      <div>
+                        <strong>{resource.title}</strong>
+                        <p style={{ margin: '6px 0 0', color: 'var(--gray-2)', fontSize: '0.84rem' }}>
+                          {resource.slug}
+                        </p>
+                      </div>
+                      <div className="resource-admin-meta">
+                        <span className={`resource-status-pill${resource.publishState === 'published' ? ' is-published' : ' is-draft'}`}>
+                          {resource.publishState}
+                        </span>
+                        <span>{resource.ctaLabel || 'Open resource'}</span>
+                      </div>
+                      <div className="admin-row-actions">
+                        <button type="button" className="btn-secondary btn-small" onClick={() => selectResource(resource)}>
+                          Edit
+                        </button>
+                        <button
+                          type="button"
+                          className="auth-link danger-link"
+                          onClick={() => {
+                            if (!window.confirm(`Delete "${resource.title}"? This cannot be undone.`)) return;
+                            deleteDocument('resources', resource.id).then(refreshAll).catch((e) => setError(e?.message || 'Could not delete resource.'));
+                          }}
+                        >
+                          Delete
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
             </div>
           ) : null}
 

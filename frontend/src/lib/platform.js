@@ -20,6 +20,7 @@ import {
   defaultEventFormSchema,
   defaultNodeLeadFormSchema,
   fallbackEvents,
+  fallbackResources,
   fallbackUpdates
 } from './defaultContent';
 import { normalizeEventRecord } from './events';
@@ -44,6 +45,98 @@ function normalizeEventDocuments(items) {
   return items
     .map((item) => normalizeEventRecord(item))
     .filter(Boolean);
+}
+
+function slugify(value) {
+  return String(value || '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+}
+
+function normalizeResourceRecord(resource) {
+  if (!resource) return null;
+
+  const body = Array.isArray(resource.body)
+    ? resource.body.map((item) => String(item || '').trim()).filter(Boolean)
+    : [];
+
+  const image = resource.image && typeof resource.image === 'object'
+    ? {
+      url: typeof resource.image.url === 'string' ? resource.image.url : '',
+      name: typeof resource.image.name === 'string' ? resource.image.name : '',
+      mimeType: typeof resource.image.mimeType === 'string' ? resource.image.mimeType : ''
+    }
+    : null;
+
+  return {
+    ...resource,
+    title: typeof resource.title === 'string' ? resource.title : 'Untitled Resource',
+    slug: slugify(resource.slug || resource.title || resource.id || 'resource'),
+    sourceLabel: typeof resource.sourceLabel === 'string' ? resource.sourceLabel : '',
+    excerpt: typeof resource.excerpt === 'string' ? resource.excerpt : '',
+    body,
+    bodyHtml: typeof resource.bodyHtml === 'string' ? resource.bodyHtml : body.map((paragraph) => `<p>${paragraph}</p>`).join(''),
+    ctaLabel: typeof resource.ctaLabel === 'string' ? resource.ctaLabel : 'Open resource',
+    ctaUrl: typeof resource.ctaUrl === 'string' ? resource.ctaUrl : '',
+    image,
+    publishState: typeof resource.publishState === 'string' ? resource.publishState : 'draft'
+  };
+}
+
+function sortByUpdatedAtDesc(items) {
+  function toMillis(value) {
+    if (!value) return 0;
+    if (typeof value === 'string') return new Date(value).getTime();
+    if (typeof value?.toMillis === 'function') return value.toMillis();
+    if (value instanceof Date) return value.getTime();
+    return 0;
+  }
+
+  return [...items].sort((a, b) => toMillis(b.updatedAt || b.createdAt) - toMillis(a.updatedAt || a.createdAt));
+}
+
+async function ensureBootstrapResources() {
+  if (!db) return sortByUpdatedAtDesc(fallbackResources.map(normalizeResourceRecord).filter(Boolean));
+
+  const resourcesCollection = collection(db, 'resources');
+  const markerRef = doc(db, 'siteSettings', 'resources');
+  const [markerSnap, existing] = await Promise.all([
+    getDoc(markerRef),
+    getDocs(query(resourcesCollection, limit(1)))
+  ]);
+
+  if (markerSnap.exists()) {
+    const fullSnap = await getDocs(resourcesCollection);
+    return sortByUpdatedAtDesc(fullSnap.docs.map(mapDoc).map(normalizeResourceRecord).filter(Boolean));
+  }
+
+  if (!existing.empty) {
+    await setDoc(markerRef, {
+      seeded: true,
+      updatedAt: serverTimestamp()
+    }, { merge: true });
+
+    const fullSnap = await getDocs(resourcesCollection);
+    return sortByUpdatedAtDesc(fullSnap.docs.map(mapDoc).map(normalizeResourceRecord).filter(Boolean));
+  }
+
+  const seededResources = fallbackResources.map(normalizeResourceRecord).filter(Boolean);
+  await Promise.all(
+    seededResources.map((resource) => setDoc(doc(db, 'resources', resource.id || resource.slug), {
+      ...resource,
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp()
+    }, { merge: true }))
+  );
+
+  await setDoc(markerRef, {
+    seeded: true,
+    updatedAt: serverTimestamp()
+  }, { merge: true });
+
+  const seededSnap = await getDocs(resourcesCollection);
+  return sortByUpdatedAtDesc(seededSnap.docs.map(mapDoc).map(normalizeResourceRecord).filter(Boolean));
 }
 
 async function apiRequest(path, { method = 'GET', body, requireAuth = false } = {}) {
@@ -248,6 +341,47 @@ export async function getUpdateBySlug(slug) {
   const snap = await getDocs(q);
   if (snap.empty) return fallbackUpdates.find((item) => item.slug === slug) || null;
   return mapDoc(snap.docs[0]);
+}
+
+export async function getPublishedResources() {
+  if (!db) return sortByUpdatedAtDesc(fallbackResources.map(normalizeResourceRecord).filter(Boolean));
+  const allResources = await ensureBootstrapResources();
+  return allResources.filter((item) => item.publishState === 'published');
+}
+
+export async function getAdminResources() {
+  if (!db) return sortByUpdatedAtDesc(fallbackResources.map(normalizeResourceRecord).filter(Boolean));
+  return ensureBootstrapResources();
+}
+
+export async function getResourceBySlug(slug) {
+  if (!slug) return null;
+  if (!db) return fallbackResources.map(normalizeResourceRecord).find((item) => item.slug === slug) || null;
+  await ensureBootstrapResources();
+  const q = query(collection(db, 'resources'), where('slug', '==', slug), limit(1));
+  const snap = await getDocs(q);
+  if (snap.empty) return fallbackResources.map(normalizeResourceRecord).find((item) => item.slug === slug) || null;
+  return normalizeResourceRecord(mapDoc(snap.docs[0]));
+}
+
+export async function saveResource(resource) {
+  if (!db) throw new Error('Firebase is not configured.');
+  const normalized = normalizeResourceRecord(resource);
+  const payload = {
+    ...normalized,
+    updatedAt: serverTimestamp()
+  };
+
+  if (resource.id) {
+    await setDoc(doc(db, 'resources', resource.id), payload, { merge: true });
+    return resource.id;
+  }
+
+  const resourceRef = await addDoc(collection(db, 'resources'), {
+    ...payload,
+    createdAt: serverTimestamp()
+  });
+  return resourceRef.id;
 }
 
 export async function saveUpdatePost(update) {
@@ -491,6 +625,27 @@ export async function uploadAttachment(file, draftId, onProgress) {
     size: file.size,
     url,
     downloadable: true
+  };
+}
+
+export async function uploadResourceImage(file, draftId, onProgress) {
+  if (!storage) throw new Error('Firebase Storage is not configured.');
+  const safeName = `${Date.now()}-${file.name.replace(/[^a-z0-9._-]/gi, '_')}`;
+  const storageRef = ref(storage, `resources/${draftId || 'draft'}/media/${safeName}`);
+  await new Promise((resolve, reject) => {
+    const task = uploadBytesResumable(storageRef, file);
+    task.on('state_changed',
+      (snap) => onProgress?.(Math.round((snap.bytesTransferred / snap.totalBytes) * 100)),
+      reject,
+      resolve
+    );
+  });
+  const url = await getDownloadURL(storageRef);
+  return {
+    url,
+    name: file.name,
+    mimeType: file.type || 'application/octet-stream',
+    size: file.size
   };
 }
 

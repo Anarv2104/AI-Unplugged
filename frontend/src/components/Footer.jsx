@@ -5,6 +5,7 @@ export default function Footer() {
       <div className="footer-links">
         <a href="/events">Events</a>
         <a href="/updates">Updates</a>
+        <a href="/resources">Resources</a>
         <a href="/attend">Attend</a>
         <a href="/become-a-host">Become a Host</a>
         <a href="/node-lead">Node Lead</a>

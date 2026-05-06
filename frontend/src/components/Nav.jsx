@@ -55,6 +55,9 @@ export default function Nav() {
         <NavLink to="/updates" className={(args) => navClass(args)} end>
           Updates
         </NavLink>
+        <NavLink to="/resources" className={(args) => navClass(args)} end>
+          Resources
+        </NavLink>
 
         {isAuthenticated ? (
           <>

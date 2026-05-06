@@ -88,6 +88,31 @@ export const fallbackUpdates = [
   }
 ];
 
+export const fallbackResources = [
+  {
+    id: 'skill-vault',
+    slug: 'skill-vault',
+    title: 'Skill Vault',
+    excerpt: 'A platform for publishing, discovering, reviewing, and featuring high-signal AI skills built by the community.',
+    body: [
+      'Skill Vault is where builders can publish reusable Claude skills, agent workflows, prompts, and operating systems that actually help other people ship faster.',
+      'The platform highlights reviewed submissions, surfaces the most liked and downloaded skills, and introduces a leaderboard layer so the best work compounds into visibility instead of getting buried.',
+      'If you want to contribute your own skill stack or explore what other builders are already using in the wild, Skill Vault is the public archive.'
+    ],
+    bodyHtml: '<p>Skill Vault is where builders can publish reusable Claude skills, agent workflows, prompts, and operating systems that actually help other people ship faster.</p><p>The platform highlights reviewed submissions, surfaces the most liked and downloaded skills, and introduces a leaderboard layer so the best work compounds into visibility instead of getting buried.</p><p>If you want to contribute your own skill stack or explore what other builders are already using in the wild, Skill Vault is the public archive.</p>',
+    ctaLabel: 'Open Skill Vault',
+    ctaUrl: 'https://skills.houseofstarts.com/',
+    image: {
+      url: '/skill-vault-logo.svg',
+      name: 'Skill Vault',
+      mimeType: 'image/svg+xml'
+    },
+    publishState: 'published',
+    createdAt: '2026-05-01T12:00:00.000Z',
+    updatedAt: '2026-05-01T12:00:00.000Z'
+  }
+];
+
 export const fallbackEvents = staticEvents.map((event) => ({
   ...event,
   publishState: event.status === 'upcoming' ? 'published' : 'published',
