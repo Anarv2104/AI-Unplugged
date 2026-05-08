@@ -163,7 +163,7 @@ export default function HomePage() {
             <div className="value-card">
               <div className="value-card-num">3</div>
               <h3>Ecosystem Entry</h3>
-              <p>AI Unplugged operates inside the House of Starts startup ecosystem. You are not joining a community. You are entering a network that connects to real opportunities.</p>
+              <p>AI Unplugged operates inside a real startup ecosystem. You are not joining a community. You are entering a network that connects to real opportunities.</p>
             </div>
             <div className="value-card">
               <div className="value-card-num">4</div>
