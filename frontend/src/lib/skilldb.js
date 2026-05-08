@@ -1,17 +1,5 @@
-import {
-  addDoc,
-  collection,
-  deleteDoc,
-  doc,
-  getDocs,
-  increment,
-  query,
-  serverTimestamp,
-  setDoc,
-  updateDoc,
-  where
-} from 'firebase/firestore';
-import { auth, db } from './firebase';
+import { auth } from './firebase';
+import { apiRequest } from './platform';
 
 export const SKILLDB_CATEGORIES = [
   'AI & Machine Learning',
@@ -27,16 +15,10 @@ export const SKILLDB_CATEGORIES = [
   'Web Development'
 ];
 
-export const SKILLDB_MAX_FILE_SIZE = 300 * 1024;
-export const SKILLDB_META_DOC_ID = '__skilldb_meta__';
-
-function mapDoc(snapshot) {
-  return { id: snapshot.id, ...snapshot.data() };
-}
+export const SKILLDB_MAX_FILE_SIZE = 2 * 1024 * 1024;
 
 function toMillis(value) {
   if (!value) return 0;
-  if (typeof value?.toMillis === 'function') return value.toMillis();
   if (value instanceof Date) return value.getTime();
   return new Date(value).getTime() || 0;
 }
@@ -66,24 +48,17 @@ function normalizeSkillRecord(skill) {
     filePath: String(skill.filePath || '').trim(),
     downloads: Number(skill.downloads || 0),
     publishState: String(skill.publishState || 'pending').trim(),
-    userId: String(skill.userId || '').trim(),
-    kind: String(skill.kind || 'skill').trim()
+    userId: String(skill.userId || '').trim()
   };
-}
-
-function isRealSkill(skill) {
-  return Boolean(skill) && skill.id !== SKILLDB_META_DOC_ID && skill.kind !== 'meta';
 }
 
 function computeStats(skills) {
   const contributorSet = new Set();
   const categorySet = new Set();
-
   for (const skill of skills) {
     if (skill.email) contributorSet.add(skill.email.toLowerCase());
     if (skill.category) categorySet.add(skill.category);
   }
-
   return {
     totalSkills: skills.length,
     categories: categorySet.size,
@@ -96,11 +71,9 @@ export function validateSkillUploadFile(file) {
   if (!String(file.name || '').toLowerCase().endsWith('.md')) {
     throw new Error('Only .md Markdown files are allowed.');
   }
-  if (!file.size) {
-    throw new Error('The uploaded Markdown file is empty.');
-  }
+  if (!file.size) throw new Error('The uploaded Markdown file is empty.');
   if (file.size > SKILLDB_MAX_FILE_SIZE) {
-    throw new Error('The Markdown file must be 300 KB or smaller.');
+    throw new Error('The Markdown file must be 2 MB or smaller.');
   }
 }
 
@@ -111,69 +84,62 @@ export function formatSkillFileSize(size) {
   return `${bytes} B`;
 }
 
-async function ensureSkillsBootstrap() {
-  if (!db || !auth?.currentUser) return;
-  const metaRef = doc(db, 'skills', SKILLDB_META_DOC_ID);
-  await setDoc(metaRef, {
-    kind: 'meta',
-    label: 'SkillDB bootstrap',
-    updatedAt: serverTimestamp(),
-    createdAt: serverTimestamp()
-  }, { merge: true }).catch(() => {});
-}
-
-async function readMarkdownFile(file, onProgress) {
-  validateSkillUploadFile(file);
-  onProgress?.(15);
-  const text = await file.text();
-  if (!text.trim()) {
-    throw new Error('The uploaded Markdown file is empty.');
-  }
-  const encodedSize = new TextEncoder().encode(text).length;
-  if (encodedSize > SKILLDB_MAX_FILE_SIZE) {
-    throw new Error('The Markdown content is too large for Firestore. Keep it under 300 KB.');
-  }
-  onProgress?.(45);
-  return {
-    fileName: safeFileName(file.name || 'skill.md'),
-    fileSize: encodedSize,
-    markdownContent: text
-  };
-}
-
 export async function getPublishedSkills() {
-  if (!db) return [];
-  const q = query(collection(db, 'skills'), where('publishState', '==', 'published'));
-  const snap = await getDocs(q);
-  return sortByCreatedAtDesc(snap.docs.map(mapDoc).map(normalizeSkillRecord).filter(isRealSkill));
+  const result = await apiRequest('/api/platform/skills').catch(() => ({ skills: [] }));
+  return sortByCreatedAtDesc((result.skills || []).map(normalizeSkillRecord).filter(Boolean));
 }
 
 export async function getSkillDBStats() {
-  await ensureSkillsBootstrap();
-  const publishedSkills = await getPublishedSkills();
-  return computeStats(publishedSkills);
+  const skills = await getPublishedSkills();
+  return computeStats(skills);
 }
 
 export async function getAdminSkills() {
-  if (!db) return [];
-  await ensureSkillsBootstrap();
-  const snap = await getDocs(collection(db, 'skills'));
-  return sortByCreatedAtDesc(snap.docs.map(mapDoc).map(normalizeSkillRecord).filter(isRealSkill));
+  const result = await apiRequest('/api/platform/skills?admin=1', { requireAuth: true });
+  return sortByCreatedAtDesc((result.skills || []).map(normalizeSkillRecord).filter(Boolean));
 }
 
 export async function getUserSkills(userId) {
-  if (!db || !userId) return [];
-  await ensureSkillsBootstrap();
-  const q = query(collection(db, 'skills'), where('userId', '==', userId));
-  const snap = await getDocs(q);
-  return sortByCreatedAtDesc(snap.docs.map(mapDoc).map(normalizeSkillRecord).filter(isRealSkill));
+  if (!userId) return [];
+  const result = await apiRequest(`/api/platform/skills?userId=${encodeURIComponent(userId)}`, { requireAuth: true });
+  return sortByCreatedAtDesc((result.skills || []).map(normalizeSkillRecord).filter(Boolean));
+}
+
+async function uploadSkillMultipart({ method, path, fields, file, onProgress }) {
+  if (!auth?.currentUser) throw new Error('You must be logged in.');
+  const token = await auth.currentUser.getIdToken();
+  const formData = new FormData();
+  for (const [key, value] of Object.entries(fields || {})) {
+    formData.append(key, value ?? '');
+  }
+  if (file) formData.append('file', file, file.name);
+
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open(method, path);
+    xhr.setRequestHeader('Authorization', `Bearer ${token}`);
+    xhr.upload.onprogress = (event) => {
+      if (event.lengthComputable && onProgress) {
+        onProgress(Math.round((event.loaded / event.total) * 100));
+      }
+    };
+    xhr.onerror = () => reject(new Error('Upload failed because the backend is unavailable.'));
+    xhr.onload = () => {
+      let payload = {};
+      try { payload = JSON.parse(xhr.responseText || '{}'); } catch (error) { /* ignore */ }
+      if (xhr.status >= 200 && xhr.status < 300) {
+        resolve(payload);
+      } else {
+        reject(new Error(payload?.error || `Upload failed with status ${xhr.status}.`));
+      }
+    };
+    xhr.send(formData);
+  });
 }
 
 export async function createSkillSubmission(payload, file, user, onProgress) {
-  if (!db) throw new Error('Firebase is not configured.');
   if (!user?.uid) throw new Error('You must be logged in to upload a skill.');
-  await ensureSkillsBootstrap();
-  const upload = await readMarkdownFile(file, onProgress);
+  validateSkillUploadFile(file);
   const fields = {
     name: String(payload?.name || '').trim(),
     phone: String(payload?.phone || '').trim(),
@@ -188,36 +154,21 @@ export async function createSkillSubmission(payload, file, user, onProgress) {
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(fields.email)) {
     throw new Error('Please enter a valid email address.');
   }
-  onProgress?.(70);
-  const ref = await addDoc(collection(db, 'skills'), {
-    kind: 'skill',
-    ...fields,
-    ...upload,
-    publishState: 'pending',
-    downloads: 0,
-    userId: user.uid,
-    reviewedAt: null,
-    reviewedBy: null,
-    createdAt: serverTimestamp(),
-    updatedAt: serverTimestamp()
+
+  return uploadSkillMultipart({
+    method: 'POST',
+    path: '/api/platform/skills',
+    fields,
+    file,
+    onProgress
   });
-  onProgress?.(100);
-  return {
-    ok: true,
-    id: ref.id,
-    skillId: ref.id,
-    publishState: 'pending',
-    message: 'Thank you. Your skill has been submitted for review.',
-    subMessage: 'Your markdown file is now in the approval queue. Once an admin publishes it, it will appear on the SkillDB dashboard for everyone to browse and download.'
-  };
 }
 
 export async function updateSkillSubmission(skillId, existingSkill, payload, file, user, onProgress) {
-  if (!db) throw new Error('Firebase is not configured.');
   if (!user?.uid || user.uid !== existingSkill?.userId) {
     throw new Error('You can only edit your own submissions.');
   }
-  await ensureSkillsBootstrap();
+  if (file) validateSkillUploadFile(file);
   const fields = {
     name: String(payload?.name || '').trim(),
     phone: String(payload?.phone || '').trim(),
@@ -232,56 +183,39 @@ export async function updateSkillSubmission(skillId, existingSkill, payload, fil
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(fields.email)) {
     throw new Error('Please enter a valid email address.');
   }
-  onProgress?.(20);
-  let upload = {};
-  if (file) {
-    upload = await readMarkdownFile(file, onProgress);
-  }
-  onProgress?.(75);
-  await updateDoc(doc(db, 'skills', skillId), {
-    ...fields,
-    ...upload,
-    publishState: 'pending',
-    reviewedAt: null,
-    reviewedBy: null,
-    updatedAt: serverTimestamp()
+  return uploadSkillMultipart({
+    method: 'PUT',
+    path: `/api/platform/skills/${encodeURIComponent(skillId)}`,
+    fields,
+    file: file || null,
+    onProgress
   });
-  onProgress?.(100);
-  return {
-    ok: true,
-    id: skillId,
-    skillId,
-    publishState: 'pending',
-    message: 'Thank you. Your updated skill has been submitted for review.',
-    subMessage: 'The updated version is back in the approval queue and will replace the public version after an admin publishes it.'
-  };
 }
 
 export async function deleteSkillSubmission(skill, user, isAdmin = false) {
-  if (!db) throw new Error('Firebase is not configured.');
   if (!skill?.id) throw new Error('Missing skill id.');
   if (!isAdmin && user?.uid !== skill.userId) {
     throw new Error('You can only delete your own submissions.');
   }
-  await deleteDoc(doc(db, 'skills', skill.id));
+  return apiRequest(`/api/platform/skills/${encodeURIComponent(skill.id)}`, {
+    method: 'DELETE',
+    requireAuth: true
+  });
 }
 
-export async function reviewSkillSubmission(skillId, publishState, reviewerId = '') {
-  if (!db) throw new Error('Firebase is not configured.');
-  await updateDoc(doc(db, 'skills', skillId), {
-    publishState,
-    reviewedAt: serverTimestamp(),
-    reviewedBy: reviewerId || auth?.currentUser?.uid || '',
-    updatedAt: serverTimestamp()
+export async function reviewSkillSubmission(skillId, publishState) {
+  return apiRequest(`/api/platform/skills/${encodeURIComponent(skillId)}/review`, {
+    method: 'PUT',
+    body: { publishState },
+    requireAuth: true
   });
 }
 
 export async function incrementSkillDownloads(skillId) {
-  if (!db || !skillId) return;
-  await updateDoc(doc(db, 'skills', skillId), {
-    downloads: increment(1),
-    updatedAt: serverTimestamp()
-  });
+  if (!skillId) return null;
+  return apiRequest(`/api/platform/skills/${encodeURIComponent(skillId)}/downloads`, {
+    method: 'POST'
+  }).catch(() => null);
 }
 
 export function downloadSkillMarkdown(skill) {

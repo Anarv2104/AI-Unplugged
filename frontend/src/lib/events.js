@@ -47,12 +47,26 @@ function normalizeSpeakers(value) {
     .filter((item) => item.name || item.role);
 }
 
+function coerceDateOnly(value) {
+  if (!value) return '';
+  if (value instanceof Date && !Number.isNaN(value.getTime())) {
+    return value.toISOString().slice(0, 10);
+  }
+  const str = String(value);
+  if (/^\d{4}-\d{2}-\d{2}$/.test(str)) return str;
+  if (/^\d{4}-\d{2}-\d{2}T/.test(str)) return str.slice(0, 10);
+  const parsed = new Date(str);
+  return Number.isNaN(parsed.getTime()) ? '' : parsed.toISOString().slice(0, 10);
+}
+
 export function normalizeEventRecord(event) {
   if (!event) return null;
 
   const description = ensureArray(event.description)
     .map((item) => String(item || '').trim())
     .filter(Boolean);
+
+  const dateOnly = coerceDateOnly(event.date);
 
   const normalized = {
     ...event,
@@ -63,7 +77,8 @@ export function normalizeEventRecord(event) {
     duration: ensureString(event.duration, ''),
     location: ensureString(event.location, ''),
     tagline: ensureString(event.tagline, ''),
-    dateDisplay: ensureString(event.dateDisplay, ensureString(event.date, 'Date TBA')),
+    date: dateOnly,
+    dateDisplay: ensureString(event.dateDisplay, dateOnly || 'Date TBA'),
     startTime: ensureString(event.startTime),
     endTime: ensureString(event.endTime),
     publishState: ensureString(event.publishState, 'draft'),

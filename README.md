@@ -3,33 +3,16 @@
 The repo is split into a dedicated frontend and backend:
 
 - [frontend](./frontend): React + Vite app
-- [backend](./backend): Node server, Firebase config, Firestore rules, local platform API, and future deploy helpers
+- [backend](./backend): Node server backed by **Postgres** (data) and the **local filesystem** (uploads). **Firebase is used only for authentication.**
 
-Additional setup guides:
+## Stack
 
-- [frontend/README.md](./frontend/README.md)
-- [backend/README.md](./backend/README.md)
+- Frontend: React 18 + Vite
+- Backend: Node.js HTTP server + Prisma + Postgres
+- File storage: local filesystem under `backend/uploads/`, served at `/uploads/...`
+- Auth: Firebase Authentication (ID token verified server-side via `firebase-admin`)
 
-## Structure
-
-```text
-AI Unplugged/
-├── frontend/
-│   ├── src/
-│   ├── css/
-│   ├── package.json
-│   └── vite.config.mjs
-├── backend/
-│   ├── functions/
-│   ├── data/
-│   ├── server.js
-│   ├── package.json
-│   ├── firebase.json
-│   └── firestore.rules
-└── README.md
-```
-
-## Frontend
+## Frontend (dev)
 
 ```bash
 cd frontend
@@ -37,91 +20,116 @@ npm install
 npm run dev
 ```
 
-Frontend env vars live in:
+Frontend env vars: copy `frontend/.env.example` to `frontend/.env` and fill in the Firebase client config.
 
-```text
-frontend/.env
-```
+## Backend (dev)
 
-Use `frontend/.env.example` as the template for Firebase client config.
+Prerequisites:
 
-You will get these values from:
+1. Postgres 14+ running on the same host (or wherever `DATABASE_URL` points).
+2. A Firebase service account JSON saved at `backend/serviceAccount.json` (referenced by `FIREBASE_SERVICE_ACCOUNT_PATH`).
 
-Firebase Console -> Project Settings -> General -> Your apps -> Web app
-
-## Backend
+Initial setup:
 
 ```bash
+# 1. Create the database (one time)
+createdb aiunplugged
+# or, in psql:  CREATE DATABASE aiunplugged;
+
+# 2. Configure backend env
+cp backend/.env.example backend/.env
+# Edit backend/.env and set DATABASE_URL, BREVO_*, BOOTSTRAP_ADMIN_EMAILS, etc.
+
+# 3. Install backend dependencies and generate the Prisma client
 cd backend
+npm install
+npx prisma migrate dev --name init   # creates tables and the Prisma client
+
+# 4. Start the backend
 npm run start
 ```
 
-For local free testing, the backend reads its own `.env`:
+The backend listens on `PORT` (default `8000`) and serves both the API (`/api/*`) and the built frontend (`../frontend/dist`).
 
-```text
-backend/.env
-```
+## Production deploy (single server, no Docker)
 
-Use `backend/.env.example` as the template.
-
-The backend also expects a Firebase service account JSON in `backend/`, referenced by `FIREBASE_SERVICE_ACCOUNT_PATH`.
-
-Install the bundled Firebase/XLSX dependencies with:
+On the production server (Ubuntu/Debian shown):
 
 ```bash
+# 1. System packages
+sudo apt update
+sudo apt install -y nodejs npm postgresql
+
+# 2. Postgres role + database
+sudo -u postgres psql <<'SQL'
+CREATE ROLE aiu WITH LOGIN PASSWORD 'CHANGE_ME';
+CREATE DATABASE aiunplugged OWNER aiu;
+SQL
+
+# 3. App
+git clone <your-repo> /var/www/ai-unplugged
+cd /var/www/ai-unplugged
+
+# 4. Frontend build
+cd frontend
+npm ci
+npm run build
+cd ..
+
+# 5. Backend
 cd backend
-npm run functions:install
+npm ci
+# Place serviceAccount.json into backend/ and create backend/.env (see backend/.env.example)
+npx prisma migrate deploy
+npm run start
 ```
 
-The old Functions directory is still present for a future deploy path, but it is not required for local testing.
+For a long-running process, use systemd. Sample unit at `/etc/systemd/system/ai-unplugged.service`:
 
-Backend env values should not be committed. Use:
+```ini
+[Unit]
+Description=AI Unplugged
+After=network.target postgresql.service
 
-```text
-backend/.env.example
+[Service]
+Type=simple
+User=www-data
+WorkingDirectory=/var/www/ai-unplugged/backend
+EnvironmentFile=/var/www/ai-unplugged/backend/.env
+ExecStart=/usr/bin/node server.js
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
 ```
 
-Required backend values:
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable --now ai-unplugged
+sudo journalctl -fu ai-unplugged
+```
 
+Front it with nginx/Caddy as a reverse proxy to `localhost:8000`.
+
+## Database & uploads
+
+- All collections previously in Firestore now live as Postgres tables managed by Prisma. Schema: `backend/prisma/schema.prisma`.
+- Uploaded files (skill `.md` files, update attachments, resource images) live under `backend/uploads/` and are served by the backend at `GET /uploads/<path>`.
+- Firebase is **only** used to verify ID tokens (`firebase-admin` on the backend, `firebase/auth` on the frontend).
+
+## Required env values
+
+Backend (`backend/.env`):
+
+- `DATABASE_URL`
 - `FIREBASE_SERVICE_ACCOUNT_PATH`
-- `BREVO_API_KEY`
-- `BREVO_SENDER_EMAIL`
-- `BREVO_SENDER_NAME`
+- `PUBLIC_BASE_URL` (production only — origin used for absolute upload URLs)
+- `BREVO_API_KEY`, `BREVO_SENDER_EMAIL`, `BREVO_SENDER_NAME`
 - `BOOTSTRAP_ADMIN_EMAILS`
 
-## Production Build
+Frontend (`frontend/.env`): only the Firebase Auth keys are needed.
 
-Build the frontend first:
+## Bootstrap an admin
 
-```bash
-cd frontend
-npm run build
-```
-
-Then serve it from the backend:
-
-```bash
-cd ../backend
-npm run start
-```
-
-The backend server now serves:
-
-```text
-../frontend/dist
-```
-
-If that build output does not exist yet, the backend returns a clear build-required message.
-
-## Platform Ready Checklist
-
-1. Fill in `frontend/.env`
-2. Enable Firebase Email/Password auth
-3. Enable Firebase Google auth
-4. Add `localhost` and production domains to Firebase Authorized Domains
-5. Create `backend/.env`
-6. Add a Firebase service account JSON to `backend/`
-7. Add Brevo and bootstrap-admin values to `backend/.env`
-8. Build `frontend`
-9. Install `backend/functions` dependencies
-10. Start the backend locally
+Set your email in `BOOTSTRAP_ADMIN_EMAILS`, restart the backend, and sign in. Your `users.role` is upserted to `ADMIN` on the first auth sync.

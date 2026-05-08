@@ -304,6 +304,7 @@ export default function AdminPage() {
   const [setupStatus, setSetupStatus] = useState({ warnings: [], diagnostics: null, mailProvider: 'brevo' });
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
+  const [publishSuccess, setPublishSuccess] = useState(null);
   const [isSaving, setIsSaving] = useState(false);
   const [homeSpotlightIds, setHomeSpotlightIds] = useState([]);
   const [spotlightModalOpen, setSpotlightModalOpen] = useState(false);
@@ -555,16 +556,26 @@ function selectResource(resource) {
         formId = savedFormId;
       }
 
-      await saveEvent({
+      const savedId = await saveEvent({
         ...eventDraft,
         formId,
         mapAddress: resolvedMap?.address || eventDraft.mapAddress || eventDraft.location,
         mapLat: resolvedMap?.lat ?? eventDraft.mapLat,
         mapLng: resolvedMap?.lng ?? eventDraft.mapLng
       });
+      const isPublished = eventDraft.publishState === 'published';
       setEventDraft(emptyEventDraft());
       setEventCustomSchema(schemaFromEvent(emptyEventDraft()));
-      setMessage('Event saved.');
+      setMessage(isPublished ? 'Event published.' : 'Event saved as draft.');
+      if (isPublished) {
+        setPublishSuccess({
+          title: 'Event published successfully',
+          message: `"${eventDraft.title || 'Untitled event'}" is now live.`,
+          viewLabel: 'View on events page',
+          viewUrl: `/events`,
+          detailUrl: savedId ? `/event?id=${encodeURIComponent(savedId)}` : ''
+        });
+      }
       refreshAll();
     } catch (nextError) {
       setError(nextError?.message || 'Could not save event.');
@@ -679,14 +690,25 @@ function selectResource(resource) {
     resetMessages();
     setIsSaving(true);
     try {
+      const slug = updateDraft.slug || updateDraft.title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
       await saveUpdatePost({
         ...updateDraft,
-        slug: updateDraft.slug || updateDraft.title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, ''),
+        slug,
         bodyHtml: updateDraft.bodyHtml,
         body: htmlToParagraphs(updateDraft.bodyHtml)
       });
+      const isPublished = updateDraft.publishState === 'published';
       setUpdateDraft({ id: '', title: '', slug: '', excerpt: '', bodyHtml: '', category: 'update', commentMode: 'moderated', publishState: 'draft', authorName: 'AI Unplugged Team', scope: 'general', eventId: '', attachments: [] });
-      setMessage('Update saved.');
+      setMessage(isPublished ? 'Update published.' : 'Update saved as draft.');
+      if (isPublished) {
+        setPublishSuccess({
+          title: 'Update published successfully',
+          message: `"${updateDraft.title || 'Untitled update'}" is now live.`,
+          viewLabel: 'View on updates page',
+          viewUrl: `/updates/${slug}`,
+          detailUrl: ''
+        });
+      }
       refreshAll();
     } catch (nextError) {
       setError(nextError?.message || 'Could not save update.');
@@ -715,13 +737,24 @@ function selectResource(resource) {
     resetMessages();
     setIsSaving(true);
     try {
+      const slug = resourceDraft.slug || resourceDraft.title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
       await saveResource({
         ...resourceDraft,
-        slug: resourceDraft.slug || resourceDraft.title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, ''),
+        slug,
         body: htmlToParagraphs(resourceDraft.bodyHtml)
       });
+      const isPublished = resourceDraft.publishState === 'published';
       setResourceDraft(emptyResourceDraft());
-      setMessage('Resource saved.');
+      setMessage(isPublished ? 'Resource published.' : 'Resource saved as draft.');
+      if (isPublished) {
+        setPublishSuccess({
+          title: 'Resource published successfully',
+          message: `"${resourceDraft.title || 'Untitled resource'}" is now live.`,
+          viewLabel: 'View on resources page',
+          viewUrl: `/resources`,
+          detailUrl: slug ? `/resources/${slug}` : ''
+        });
+      }
       refreshAll();
     } catch (nextError) {
       setError(nextError?.message || 'Could not save resource.');
@@ -883,6 +916,32 @@ function selectResource(resource) {
         <div className="admin-main">
           {message ? <div className="auth-success">{message}</div> : null}
           {error ? <div className="form-error" style={{ display: 'block' }}>{error}</div> : null}
+          {publishSuccess ? (
+            <div
+              className="skilldb-modal-backdrop"
+              onClick={() => setPublishSuccess(null)}
+              style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999 }}
+            >
+              <div
+                className="skilldb-modal-card"
+                onClick={(e) => e.stopPropagation()}
+                style={{ background: '#fff', borderRadius: 12, padding: 28, maxWidth: 440, width: '90%', boxShadow: '0 12px 48px rgba(0,0,0,0.3)' }}
+              >
+                <div style={{ fontSize: 36, marginBottom: 8, color: '#1a7f37' }}>✓</div>
+                <h2 style={{ margin: '0 0 8px', fontSize: 20 }}>{publishSuccess.title}</h2>
+                <p style={{ margin: '0 0 20px', color: '#444' }}>{publishSuccess.message}</p>
+                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                  {publishSuccess.viewUrl ? (
+                    <a className="btn-primary" href={publishSuccess.viewUrl} target="_blank" rel="noopener noreferrer" onClick={() => setPublishSuccess(null)}>{publishSuccess.viewLabel}</a>
+                  ) : null}
+                  {publishSuccess.detailUrl ? (
+                    <a className="btn-secondary" href={publishSuccess.detailUrl} target="_blank" rel="noopener noreferrer" onClick={() => setPublishSuccess(null)}>Open detail page</a>
+                  ) : null}
+                  <button type="button" className="btn-secondary" onClick={() => setPublishSuccess(null)}>Close</button>
+                </div>
+              </div>
+            </div>
+          ) : null}
 
           {/* OVERVIEW */}
           {tab === 'overview' ? (

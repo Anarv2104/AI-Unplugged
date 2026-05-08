@@ -9,3 +9,5 @@ functions/node_modules
 functions/.env
 functions/.env.*
 backend/serviceAccount.json
+backend/uploads/
+backend/node_modules/.prisma/

@@ -9,30 +9,12 @@ import {
   signInWithPopup,
   signOut
 } from 'firebase/auth';
-import { doc, getDoc, serverTimestamp, setDoc } from 'firebase/firestore';
-import { auth, db, googleProvider, isFirebaseConfigured } from '../lib/firebase';
+import { auth, googleProvider, isFirebaseConfigured } from '../lib/firebase';
 import { syncCurrentUser } from '../lib/platform';
 
 export const AuthContext = createContext(null);
 
-async function ensureUserProfile(user) {
-  if (!db || !user) return null;
-
-  const ref = doc(db, 'users', user.uid);
-  const snap = await getDoc(ref);
-  const payload = {
-    email: user.email || '',
-    displayName: user.displayName || '',
-    newsletterSubscribed: snap.exists() ? snap.data().newsletterSubscribed !== false : true,
-    updatedAt: serverTimestamp()
-  };
-
-  if (!snap.exists()) {
-    payload.role = 'user';
-    payload.createdAt = serverTimestamp();
-  }
-
-  await setDoc(ref, payload, { merge: true });
+async function ensureUserProfile() {
   try {
     const syncResult = await syncCurrentUser();
     if (syncResult?.profile) {
@@ -43,29 +25,23 @@ async function ensureUserProfile(user) {
       };
     }
   } catch (error) {
-    const nextSnap = await getDoc(ref);
     return {
-      profile: nextSnap.exists() ? { id: nextSnap.id, ...nextSnap.data() } : null,
+      profile: null,
       setupWarnings: [error?.message || 'Platform sync failed.'],
       claimsUpdated: false
     };
   }
-  const nextSnap = await getDoc(ref);
-  return {
-    profile: nextSnap.exists() ? { id: nextSnap.id, ...nextSnap.data() } : null,
-    setupWarnings: [],
-    claimsUpdated: false
-  };
+  return { profile: null, setupWarnings: [], claimsUpdated: false };
 }
 
 async function finalizeUserState(nextUser) {
-  const syncState = await ensureUserProfile(nextUser);
-  const tokenResult = await nextUser.getIdTokenResult(syncState?.claimsUpdated === true);
-  const isAdmin = tokenResult.claims?.admin === true || syncState?.profile?.role === 'admin';
+  const syncState = await ensureUserProfile();
+  const tokenResult = await nextUser.getIdTokenResult(syncState?.claimsUpdated === true).catch(() => null);
+  const isAdmin = syncState?.profile?.role === 'admin';
 
   return {
     profile: syncState?.profile || null,
-    claims: tokenResult.claims || {},
+    claims: tokenResult?.claims || {},
     setupWarnings: [...(syncState?.setupWarnings || [])],
     destination: isAdmin ? '/admin' : '/dashboard'
   };
@@ -73,13 +49,8 @@ async function finalizeUserState(nextUser) {
 
 async function refreshCurrentProfileState(nextUser) {
   if (!nextUser) {
-    return {
-      profile: null,
-      claims: {},
-      setupWarnings: []
-    };
+    return { profile: null, claims: {}, setupWarnings: [] };
   }
-
   const nextState = await finalizeUserState(nextUser);
   return {
     profile: nextState.profile,
@@ -111,7 +82,6 @@ export function AuthProvider({ children }) {
       }
 
       const nextState = await finalizeUserState(nextUser);
-
       setClaims(nextState.claims);
       setProfile(nextState.profile);
       setSetupWarnings(nextState.setupWarnings);
@@ -131,12 +101,6 @@ export function AuthProvider({ children }) {
     if (displayName) {
       await updateProfile(credential.user, { displayName });
     }
-    await ensureUserProfile(credential.user);
-    await setDoc(doc(db, 'users', credential.user.uid), {
-      displayName: displayName || '',
-      email,
-      newsletterSubscribed: true
-    }, { merge: true });
     return finalizeUserState(credential.user);
   }
 
@@ -175,7 +139,7 @@ export function AuthProvider({ children }) {
         loading,
         setupWarnings,
         isAuthenticated: Boolean(user),
-        isAdmin: claims.admin === true || profile?.role === 'admin',
+        isAdmin: profile?.role === 'admin',
         isFirebaseConfigured,
         loginWithEmail,
         signupWithEmail,

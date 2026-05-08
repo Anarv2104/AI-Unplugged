@@ -119,7 +119,7 @@ export default function SkillDBPage() {
           '@type': 'CreativeWork',
           name: `${skill.name} - ${skill.fileName}`,
           description: skill.description,
-          dateCreated: skill.createdAt?.toDate ? skill.createdAt.toDate().toISOString() : undefined
+          dateCreated: skill.createdAt ? new Date(skill.createdAt).toISOString() : undefined
         }
       }))
     }

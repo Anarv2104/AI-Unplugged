@@ -3,6 +3,17 @@
   "private": true,
   "scripts": {
     "start": "node server.js",
-    "functions:install": "npm --prefix functions install"
+    "functions:install": "npm --prefix functions install",
+    "prisma:generate": "prisma generate",
+    "prisma:migrate": "prisma migrate dev",
+    "prisma:deploy": "prisma migrate deploy"
+  },
+  "dependencies": {
+    "@prisma/client": "^5.22.0",
+    "firebase-admin": "^12.7.0",
+    "xlsx": "^0.18.5"
+  },
+  "devDependencies": {
+    "prisma": "^5.22.0"
   }
 }

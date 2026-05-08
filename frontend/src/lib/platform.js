@@ -1,20 +1,4 @@
-import {
-  addDoc,
-  collection,
-  deleteDoc,
-  doc,
-  getDoc,
-  getDocs,
-  limit,
-  orderBy,
-  query,
-  serverTimestamp,
-  setDoc,
-  updateDoc,
-  where
-} from 'firebase/firestore';
-import { ref, uploadBytesResumable, getDownloadURL } from 'firebase/storage';
-import { auth, db, storage, isFirebaseConfigured } from './firebase';
+import { auth, isFirebaseConfigured } from './firebase';
 import {
   COMMENT_MODES,
   defaultEventFormSchema,
@@ -29,22 +13,14 @@ function sortByDateDesc(items, key = 'publishedAt') {
   function toMillis(value) {
     if (!value) return 0;
     if (typeof value === 'string') return new Date(value).getTime();
-    if (typeof value?.toMillis === 'function') return value.toMillis();
     if (value instanceof Date) return value.getTime();
     return 0;
   }
-
   return [...items].sort((a, b) => toMillis(b[key]) - toMillis(a[key]));
 }
 
-function mapDoc(snapshot) {
-  return { id: snapshot.id, ...snapshot.data() };
-}
-
 function normalizeEventDocuments(items) {
-  return items
-    .map((item) => normalizeEventRecord(item))
-    .filter(Boolean);
+  return items.map((item) => normalizeEventRecord(item)).filter(Boolean);
 }
 
 function slugify(value) {
@@ -88,115 +64,16 @@ function sortByUpdatedAtDesc(items) {
   function toMillis(value) {
     if (!value) return 0;
     if (typeof value === 'string') return new Date(value).getTime();
-    if (typeof value?.toMillis === 'function') return value.toMillis();
     if (value instanceof Date) return value.getTime();
     return 0;
   }
-
   return [...items].sort((a, b) => toMillis(b.updatedAt || b.createdAt) - toMillis(a.updatedAt || a.createdAt));
 }
 
-const SKILLDB_RESOURCE_ID = 'skilldb';
-
-async function ensureBootstrapResources() {
-  if (!db) return sortByUpdatedAtDesc(fallbackResources.map(normalizeResourceRecord).filter(Boolean));
-
-  const resourcesCollection = collection(db, 'resources');
-  const markerRef = doc(db, 'siteSettings', 'resources');
-  const [markerSnap, existing] = await Promise.all([
-    getDoc(markerRef),
-    getDocs(query(resourcesCollection, limit(1)))
-  ]);
-
-  async function ensureSkillDBSeed(markerData = {}) {
-    const skilldbResource = fallbackResources
-      .map(normalizeResourceRecord)
-      .find((resource) => resource?.id === SKILLDB_RESOURCE_ID || resource?.slug === SKILLDB_RESOURCE_ID);
-
-    if (!skilldbResource) return;
-
-    if (markerData.skilldbSeeded === true) {
-      const skilldbRef = doc(db, 'resources', skilldbResource.id || skilldbResource.slug);
-      const skilldbSnap = await getDoc(skilldbRef);
-      if (skilldbSnap.exists()) {
-        const existingSkillDB = normalizeResourceRecord(mapDoc(skilldbSnap));
-        if (!existingSkillDB?.image?.url) {
-          await setDoc(skilldbRef, {
-            image: skilldbResource.image,
-            updatedAt: serverTimestamp()
-          }, { merge: true });
-        }
-      }
-      return;
-    }
-
-    const fullSnap = await getDocs(resourcesCollection);
-    const resources = fullSnap.docs.map(mapDoc).map(normalizeResourceRecord).filter(Boolean);
-    const hasSkillDB = resources.some((resource) => resource.id === SKILLDB_RESOURCE_ID || resource.slug === SKILLDB_RESOURCE_ID);
-
-    if (!hasSkillDB) {
-      await setDoc(doc(db, 'resources', skilldbResource.id || skilldbResource.slug), {
-        ...skilldbResource,
-        createdAt: skilldbResource.createdAt || serverTimestamp(),
-        updatedAt: serverTimestamp()
-      }, { merge: true });
-    } else {
-      const existingSkillDB = resources.find((resource) => resource.id === SKILLDB_RESOURCE_ID || resource.slug === SKILLDB_RESOURCE_ID);
-      if (!existingSkillDB?.image?.url) {
-        await setDoc(doc(db, 'resources', skilldbResource.id || skilldbResource.slug), {
-          image: skilldbResource.image,
-          updatedAt: serverTimestamp()
-        }, { merge: true });
-      }
-    }
-
-    await setDoc(markerRef, {
-      skilldbSeeded: true,
-      updatedAt: serverTimestamp()
-    }, { merge: true });
-  }
-
-  if (markerSnap.exists()) {
-    await ensureSkillDBSeed(markerSnap.data() || {});
-    const fullSnap = await getDocs(resourcesCollection);
-    return sortByUpdatedAtDesc(fullSnap.docs.map(mapDoc).map(normalizeResourceRecord).filter(Boolean));
-  }
-
-  if (!existing.empty) {
-    await setDoc(markerRef, {
-      seeded: true,
-      updatedAt: serverTimestamp()
-    }, { merge: true });
-
-    await ensureSkillDBSeed({ seeded: true });
-
-    const fullSnap = await getDocs(resourcesCollection);
-    return sortByUpdatedAtDesc(fullSnap.docs.map(mapDoc).map(normalizeResourceRecord).filter(Boolean));
-  }
-
-  const seededResources = fallbackResources.map(normalizeResourceRecord).filter(Boolean);
-  await Promise.all(
-    seededResources.map((resource) => setDoc(doc(db, 'resources', resource.id || resource.slug), {
-      ...resource,
-      createdAt: serverTimestamp(),
-      updatedAt: serverTimestamp()
-    }, { merge: true }))
-  );
-
-  await setDoc(markerRef, {
-    seeded: true,
-    skilldbSeeded: true,
-    updatedAt: serverTimestamp()
-  }, { merge: true });
-
-  const seededSnap = await getDocs(resourcesCollection);
-  return sortByUpdatedAtDesc(seededSnap.docs.map(mapDoc).map(normalizeResourceRecord).filter(Boolean));
-}
-
-async function apiRequest(path, { method = 'GET', body, requireAuth = false } = {}) {
+async function apiRequest(path, { method = 'GET', body, requireAuth = false, formData } = {}) {
   const headers = {};
 
-  if (body !== undefined) headers['Content-Type'] = 'application/json';
+  if (body !== undefined && !formData) headers['Content-Type'] = 'application/json';
   if (auth?.currentUser) {
     const token = await auth.currentUser.getIdToken();
     headers.Authorization = `Bearer ${token}`;
@@ -209,23 +86,20 @@ async function apiRequest(path, { method = 'GET', body, requireAuth = false } = 
     response = await fetch(path, {
       method,
       headers,
-      body: body !== undefined ? JSON.stringify(body) : undefined
+      body: formData ? formData : (body !== undefined ? JSON.stringify(body) : undefined)
     });
   } catch (error) {
-    throw new Error('The local backend is unavailable. Start or restart the backend server on port 8000, then refresh the frontend.');
+    throw new Error('The backend is unavailable. Start or restart the backend server, then refresh the frontend.');
   }
 
   const payload = await response.json().catch(() => ({}));
   if (!response.ok) {
     let message = payload.error || 'Request failed.';
-    if (response.status === 404 && path.startsWith('/api/platform/')) {
+    if (response.status === 404 && path.startsWith('/api/platform/') && !payload.error) {
       message = 'The running backend is outdated or missing this route. Restart the backend and refresh the frontend.';
     }
-    if (response.status === 412 && String(message).includes('Default event schema is missing.')) {
-      message = 'The running backend is outdated and does not include the default event schema fallback yet. Restart the backend and refresh the frontend.';
-    }
     if (response.status === 503 && String(message).includes('FIREBASE_SERVICE_ACCOUNT_PATH')) {
-      message = 'Local backend setup is incomplete. Add backend/serviceAccount.json and set FIREBASE_SERVICE_ACCOUNT_PATH in backend/.env, then restart the backend.';
+      message = 'Backend setup is incomplete. Add backend/serviceAccount.json and set FIREBASE_SERVICE_ACCOUNT_PATH in backend/.env, then restart the backend.';
     }
     const error = new Error(message);
     error.details = payload.details || null;
@@ -235,101 +109,66 @@ async function apiRequest(path, { method = 'GET', body, requireAuth = false } = 
   return payload;
 }
 
+// Re-export so other modules can keep using the helper if needed
+export { apiRequest };
+
 export async function getPublishedEvents() {
-  if (!db) return normalizeEventDocuments(fallbackEvents);
-  const q = query(collection(db, 'events'), where('publishState', '==', 'published'));
-  const snap = await getDocs(q);
-  if (snap.empty) return [];
-  return normalizeEventDocuments(snap.docs.map(mapDoc)).sort((a, b) => new Date(a.date || 0) - new Date(b.date || 0));
+  if (!isFirebaseConfigured) return normalizeEventDocuments(fallbackEvents);
+  const result = await apiRequest('/api/platform/events').catch(() => ({ events: [] }));
+  const events = normalizeEventDocuments(result.events || []);
+  return events.sort((a, b) => new Date(a.date || 0) - new Date(b.date || 0));
 }
 
 export async function getAdminEvents() {
-  if (!db) return normalizeEventDocuments(fallbackEvents);
-  const snap = await getDocs(collection(db, 'events'));
-  return normalizeEventDocuments(snap.docs.map(mapDoc)).sort((a, b) => new Date(a.date || 0) - new Date(b.date || 0));
+  const result = await apiRequest('/api/platform/events?admin=1', { requireAuth: true });
+  const events = normalizeEventDocuments(result.events || []);
+  return events.sort((a, b) => new Date(a.date || 0) - new Date(b.date || 0));
 }
 
 export async function getHomeSpotlightSettings() {
-  if (!db) return { featuredHomeEventIds: [] };
-  const snap = await getDoc(doc(db, 'siteSettings', 'home'));
-  if (!snap.exists()) return { featuredHomeEventIds: [] };
-  const data = snap.data() || {};
+  const result = await apiRequest('/api/platform/site-settings/home').catch(() => ({ value: null }));
+  const value = result?.value || {};
   return {
-    featuredHomeEventIds: Array.isArray(data.featuredHomeEventIds) ? data.featuredHomeEventIds.slice(0, 2) : []
+    featuredHomeEventIds: Array.isArray(value.featuredHomeEventIds) ? value.featuredHomeEventIds.slice(0, 2) : []
   };
 }
 
 export async function saveHomeSpotlightSettings(featuredHomeEventIds) {
-  if (!db) throw new Error('Firebase is not configured.');
   if (Array.isArray(featuredHomeEventIds) && featuredHomeEventIds.length > 2) {
     throw new Error('Choose up to two events for the home spotlight.');
   }
   const selected = Array.isArray(featuredHomeEventIds) ? featuredHomeEventIds.slice(0, 2) : [];
-  await setDoc(doc(db, 'siteSettings', 'home'), {
-    featuredHomeEventIds: selected,
-    updatedAt: serverTimestamp()
-  }, { merge: true });
+  await apiRequest('/api/platform/site-settings/home', {
+    method: 'PUT',
+    body: { value: { featuredHomeEventIds: selected } },
+    requireAuth: true
+  });
   return { featuredHomeEventIds: selected };
 }
 
 export async function getEventById(id) {
   if (!id) return null;
-  if (!db) {
-    return normalizeEventDocuments(fallbackEvents).find((event) => event.id === id) || null;
-  }
-
   try {
-    const snap = await getDoc(doc(db, 'events', id));
-    if (!snap.exists()) return null;
-
-    const event = normalizeEventRecord(mapDoc(snap));
-    if (!event) return null;
-    if (event.publishState === 'published') return event;
-
-    if (auth?.currentUser) {
-      const claims = await auth.currentUser.getIdTokenResult().catch(() => null);
-      if (claims?.claims?.admin === true) return event;
-    }
-
-    return null;
+    const result = await apiRequest(`/api/platform/events/${encodeURIComponent(id)}`);
+    return normalizeEventRecord(result.event) || null;
   } catch (error) {
-    if (String(error?.code || '').includes('permission-denied')) return null;
+    if (String(error?.message || '').toLowerCase().includes('not found')) return null;
     throw error;
   }
 }
 
 export async function saveEvent(event) {
-  if (!db) throw new Error('Firebase is not configured.');
-  const payload = {
-    ...normalizeEventRecord(event),
-    updatedAt: serverTimestamp()
-  };
-
-  if (event.id) {
-    await setDoc(doc(db, 'events', event.id), payload, { merge: true });
-    return event.id;
-  }
-
-  const ref = await addDoc(collection(db, 'events'), {
-    ...payload,
-    createdAt: serverTimestamp()
-  });
-  return ref.id;
+  const payload = { ...normalizeEventRecord(event), id: event.id };
+  const method = event.id ? 'PUT' : 'POST';
+  const path = event.id ? `/api/platform/events/${encodeURIComponent(event.id)}` : '/api/platform/events';
+  const result = await apiRequest(path, { method, body: payload, requireAuth: true });
+  return result.id;
 }
 
 export async function getFormSchemas(kind = null) {
-  if (!db) {
-    return kind === 'nodeLead'
-      ? [defaultNodeLeadFormSchema]
-      : kind === 'event'
-        ? [defaultEventFormSchema]
-        : [defaultEventFormSchema, defaultNodeLeadFormSchema];
-  }
-
-  const base = collection(db, 'eventForms');
-  const q = kind ? query(base, where('kind', '==', kind)) : base;
-  const snap = await getDocs(q);
-  const forms = snap.docs.map(mapDoc);
+  const path = kind ? `/api/platform/event-forms?kind=${encodeURIComponent(kind)}` : '/api/platform/event-forms';
+  const result = await apiRequest(path).catch(() => ({ forms: [] }));
+  const forms = result.forms || [];
   if (!forms.length) {
     return kind === 'nodeLead'
       ? [defaultNodeLeadFormSchema]
@@ -347,95 +186,77 @@ export async function getDefaultSchema(kind) {
 
 export async function getSchemaById(id, kind = null) {
   if (!id) return getDefaultSchema(kind || 'event');
-  if (!db) {
-    const all = await getFormSchemas(kind);
-    return all.find((schema) => schema.id === id) || null;
+  try {
+    const result = await apiRequest(`/api/platform/event-forms/${encodeURIComponent(id)}`);
+    return result.form || null;
+  } catch (error) {
+    return null;
   }
-
-  const snap = await getDoc(doc(db, 'eventForms', id));
-  return snap.exists() ? mapDoc(snap) : null;
 }
 
 export async function saveFormSchema(schema) {
-  if (!db) throw new Error('Firebase is not configured.');
-  const payload = {
-    ...schema,
-    updatedAt: serverTimestamp()
-  };
-
-  if (schema.id) {
-    await setDoc(doc(db, 'eventForms', schema.id), payload, { merge: true });
-    return schema.id;
-  }
-
-  const ref = await addDoc(collection(db, 'eventForms'), {
-    ...payload,
-    createdAt: serverTimestamp()
+  const result = await apiRequest('/api/platform/event-forms', {
+    method: 'POST',
+    body: schema,
+    requireAuth: true
   });
-  return ref.id;
+  return result.id;
 }
 
 export async function getUpdates() {
-  if (!db) return sortByDateDesc(fallbackUpdates);
-  const q = query(collection(db, 'updates'), where('publishState', '==', 'published'));
-  const snap = await getDocs(q);
-  if (snap.empty) return sortByDateDesc(fallbackUpdates);
-  return sortByDateDesc(snap.docs.map(mapDoc));
+  const result = await apiRequest('/api/platform/updates').catch(() => ({ updates: [] }));
+  if (!result.updates?.length) return sortByDateDesc(fallbackUpdates);
+  return sortByDateDesc(result.updates);
 }
 
 export async function getAdminUpdates() {
-  if (!db) return sortByDateDesc(fallbackUpdates);
-  const snap = await getDocs(collection(db, 'updates'));
-  return sortByDateDesc(snap.docs.map(mapDoc));
+  const result = await apiRequest('/api/platform/updates?admin=1', { requireAuth: true });
+  return sortByDateDesc(result.updates || []);
 }
 
 export async function getUpdateBySlug(slug) {
-  if (!db) return fallbackUpdates.find((item) => item.slug === slug) || null;
-  const q = query(collection(db, 'updates'), where('slug', '==', slug), limit(1));
-  const snap = await getDocs(q);
-  if (snap.empty) return fallbackUpdates.find((item) => item.slug === slug) || null;
-  return mapDoc(snap.docs[0]);
+  if (!slug) return null;
+  try {
+    const result = await apiRequest(`/api/platform/updates/${encodeURIComponent(slug)}`);
+    return result.update || null;
+  } catch (error) {
+    return fallbackUpdates.find((item) => item.slug === slug) || null;
+  }
 }
 
 export async function getPublishedResources() {
-  if (!db) return sortByUpdatedAtDesc(fallbackResources.map(normalizeResourceRecord).filter(Boolean));
-  const allResources = await ensureBootstrapResources();
-  return allResources.filter((item) => item.publishState === 'published');
+  const result = await apiRequest('/api/platform/resources').catch(() => ({ resources: [] }));
+  const resources = (result.resources || []).map(normalizeResourceRecord).filter(Boolean);
+  if (!resources.length) {
+    return sortByUpdatedAtDesc(fallbackResources.map(normalizeResourceRecord).filter(Boolean));
+  }
+  return sortByUpdatedAtDesc(resources);
 }
 
 export async function getAdminResources() {
-  if (!db) return sortByUpdatedAtDesc(fallbackResources.map(normalizeResourceRecord).filter(Boolean));
-  return ensureBootstrapResources();
+  const result = await apiRequest('/api/platform/resources?admin=1', { requireAuth: true });
+  const resources = (result.resources || []).map(normalizeResourceRecord).filter(Boolean);
+  return sortByUpdatedAtDesc(resources);
 }
 
 export async function getResourceBySlug(slug) {
   if (!slug) return null;
-  if (!db) return fallbackResources.map(normalizeResourceRecord).find((item) => item.slug === slug) || null;
-  await ensureBootstrapResources();
-  const q = query(collection(db, 'resources'), where('slug', '==', slug), limit(1));
-  const snap = await getDocs(q);
-  if (snap.empty) return fallbackResources.map(normalizeResourceRecord).find((item) => item.slug === slug) || null;
-  return normalizeResourceRecord(mapDoc(snap.docs[0]));
+  try {
+    const result = await apiRequest(`/api/platform/resources/${encodeURIComponent(slug)}`);
+    return normalizeResourceRecord(result.resource);
+  } catch (error) {
+    return fallbackResources.map(normalizeResourceRecord).find((item) => item?.slug === slug) || null;
+  }
 }
 
 export async function saveResource(resource) {
-  if (!db) throw new Error('Firebase is not configured.');
   const normalized = normalizeResourceRecord(resource);
-  const payload = {
-    ...normalized,
-    updatedAt: serverTimestamp()
-  };
-
-  if (resource.id) {
-    await setDoc(doc(db, 'resources', resource.id), payload, { merge: true });
-    return resource.id;
-  }
-
-  const resourceRef = await addDoc(collection(db, 'resources'), {
-    ...payload,
-    createdAt: serverTimestamp()
+  const result = await apiRequest('/api/platform/resources', {
+    method: 'POST',
+    body: { ...normalized, id: resource.id },
+    requireAuth: true
   });
-  return resourceRef.id;
+  return result.id;
 }
 
 export async function saveUpdatePost(update) {
@@ -452,13 +273,9 @@ export async function saveUpdatePost(update) {
 }
 
 export async function getCommentsForUpdate(updateId, includePending = false) {
-  if (!db) return [];
-  const base = collection(db, 'comments');
-  const q = includePending
-    ? query(base, where('updateId', '==', updateId), orderBy('createdAt', 'desc'))
-    : query(base, where('updateId', '==', updateId), where('status', '==', 'approved'));
-  const snap = await getDocs(q);
-  return snap.docs.map(mapDoc);
+  const path = `/api/platform/comments?updateId=${encodeURIComponent(updateId)}${includePending ? '&all=1' : ''}`;
+  const result = await apiRequest(path, { requireAuth: includePending }).catch(() => ({ comments: [] }));
+  return result.comments || [];
 }
 
 export async function submitUpdateComment(payload) {
@@ -491,52 +308,59 @@ export async function submitHostApplication(payload) {
   });
 }
 
-export async function getEventRegistrations() {
-  if (!db) return [];
-  const q = query(collection(db, 'eventRegistrations'), orderBy('createdAt', 'desc'));
-  const snap = await getDocs(q);
-  return snap.docs.map(mapDoc);
+export async function getEventRegistrations(eventId = '') {
+  const path = eventId
+    ? `/api/platform/event-registrations?eventId=${encodeURIComponent(eventId)}`
+    : '/api/platform/event-registrations';
+  const result = await apiRequest(path, { requireAuth: true });
+  return result.registrations || [];
 }
 
 export async function getNodeLeadApplications() {
-  if (!db) return [];
-  const q = query(collection(db, 'nodeLeadApplications'), orderBy('createdAt', 'desc'));
-  const snap = await getDocs(q);
-  return snap.docs.map(mapDoc);
+  const result = await apiRequest('/api/platform/node-lead-applications', { requireAuth: true });
+  return result.applications || [];
 }
 
 export async function updateReviewStatus(collectionName, id, reviewStatus) {
-  if (!db) throw new Error('Firebase is not configured.');
-  await updateDoc(doc(db, collectionName, id), {
-    reviewStatus,
-    updatedAt: serverTimestamp()
+  return apiRequest(`/api/platform/${collectionName}/${encodeURIComponent(id)}/review`, {
+    method: 'PUT',
+    body: { reviewStatus },
+    requireAuth: true
   });
 }
 
 export async function getSubscribers() {
-  if (!db) return [];
-  const snap = await getDocs(collection(db, 'newsletterSubscribers'));
-  return snap.docs.map(mapDoc);
+  const result = await apiRequest('/api/platform/subscribers', { requireAuth: true });
+  return result.subscribers || [];
 }
 
 export async function getCommentsForAdmin() {
-  if (!db) return [];
-  const q = query(collection(db, 'comments'), orderBy('createdAt', 'desc'));
-  const snap = await getDocs(q);
-  return snap.docs.map(mapDoc);
+  const result = await apiRequest('/api/platform/admin/comments', { requireAuth: true });
+  return result.comments || [];
 }
 
 export async function updateCommentStatus(id, status) {
-  if (!db) throw new Error('Firebase is not configured.');
-  await updateDoc(doc(db, 'comments', id), {
-    status,
-    updatedAt: serverTimestamp()
+  return apiRequest(`/api/platform/comments/${encodeURIComponent(id)}`, {
+    method: 'PUT',
+    body: { status },
+    requireAuth: true
   });
 }
 
 export async function deleteDocument(collectionName, id) {
-  if (!db) throw new Error('Firebase is not configured.');
-  await deleteDoc(doc(db, collectionName, id));
+  const map = {
+    events: 'events',
+    updates: 'updates/id',
+    resources: 'resources',
+    comments: 'comments',
+    skills: 'skills'
+  };
+  const segment = map[collectionName];
+  if (!segment) throw new Error(`Cannot delete from ${collectionName}.`);
+  return apiRequest(`/api/platform/${segment}/${encodeURIComponent(id)}`, {
+    method: 'DELETE',
+    requireAuth: true
+  });
 }
 
 export async function exportDataset(dataset, format = 'csv') {
@@ -563,15 +387,9 @@ export async function sendNewsletterCampaign(payload) {
   });
 }
 
-export async function saveSubscriber(email, payload = {}) {
-  if (!db || !email) return;
-  await setDoc(doc(db, 'newsletterSubscribers', email.toLowerCase().replace(/[^a-z0-9]+/g, '-')), {
-    email,
-    status: 'subscribed',
-    updatedAt: serverTimestamp(),
-    createdAt: serverTimestamp(),
-    ...payload
-  }, { merge: true });
+export async function saveSubscriber() {
+  // Subscribers are managed server-side via newsletter sync. Kept for API compatibility.
+  return null;
 }
 
 export async function syncCurrentUser() {
@@ -583,49 +401,28 @@ export async function syncCurrentUser() {
 }
 
 export async function listAdmins() {
-  const result = await apiRequest('/api/platform/admins', {
-    method: 'GET',
-    requireAuth: true
-  });
+  const result = await apiRequest('/api/platform/admins', { method: 'GET', requireAuth: true });
   return result.admins || [];
 }
 
 export async function grantAdminRole(payload) {
-  return apiRequest('/api/platform/admins/grant', {
-    method: 'POST',
-    body: payload,
-    requireAuth: true
-  });
+  return apiRequest('/api/platform/admins/grant', { method: 'POST', body: payload, requireAuth: true });
 }
 
 export async function revokeAdminRole(payload) {
-  return apiRequest('/api/platform/admins/revoke', {
-    method: 'POST',
-    body: payload,
-    requireAuth: true
-  });
+  return apiRequest('/api/platform/admins/revoke', { method: 'POST', body: payload, requireAuth: true });
 }
 
 export async function leaveAdminRole() {
-  return apiRequest('/api/platform/admins/leave', {
-    method: 'POST',
-    body: {},
-    requireAuth: true
-  });
+  return apiRequest('/api/platform/admins/leave', { method: 'POST', body: {}, requireAuth: true });
 }
 
 export async function getSetupStatus() {
-  return apiRequest('/api/platform/setup-status', {
-    method: 'GET',
-    requireAuth: false
-  });
+  return apiRequest('/api/platform/setup-status', { method: 'GET', requireAuth: false });
 }
 
 export async function getBackendHealth() {
-  return apiRequest('/api/platform/health', {
-    method: 'GET',
-    requireAuth: false
-  });
+  return apiRequest('/api/platform/health', { method: 'GET', requireAuth: false });
 }
 
 export async function importContentFile(upload) {
@@ -637,10 +434,7 @@ export async function importContentFile(upload) {
 }
 
 export async function getMemberDashboard() {
-  return apiRequest('/api/platform/dashboard', {
-    method: 'GET',
-    requireAuth: true
-  });
+  return apiRequest('/api/platform/dashboard', { method: 'GET', requireAuth: true });
 }
 
 export async function updateNewsletterPreference(subscribed) {
@@ -659,47 +453,55 @@ export async function geocodeAddress(address) {
   });
 }
 
-export async function uploadAttachment(file, draftId, onProgress) {
-  if (!storage) throw new Error('Firebase Storage is not configured.');
-  const safeName = `${Date.now()}-${file.name.replace(/[^a-z0-9._-]/gi, '_')}`;
-  const storageRef = ref(storage, `updates/${draftId || 'draft'}/attachments/${safeName}`);
-  await new Promise((resolve, reject) => {
-    const task = uploadBytesResumable(storageRef, file);
-    task.on('state_changed',
-      (snap) => onProgress?.(Math.round((snap.bytesTransferred / snap.totalBytes) * 100)),
-      reject,
-      resolve
-    );
+async function uploadViaBackend(kind, file, draftId, onProgress) {
+  if (!auth?.currentUser) throw new Error('You must be logged in.');
+  const token = await auth.currentUser.getIdToken();
+  const formData = new FormData();
+  formData.append('file', file, file.name);
+  formData.append('draftId', draftId || 'draft');
+
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', `/api/platform/uploads/${kind}`);
+    xhr.setRequestHeader('Authorization', `Bearer ${token}`);
+    xhr.upload.onprogress = (event) => {
+      if (event.lengthComputable && onProgress) {
+        onProgress(Math.round((event.loaded / event.total) * 100));
+      }
+    };
+    xhr.onerror = () => reject(new Error('Upload failed because the backend is unavailable.'));
+    xhr.onload = () => {
+      let payload = {};
+      try { payload = JSON.parse(xhr.responseText || '{}'); } catch (error) { /* ignore */ }
+      if (xhr.status >= 200 && xhr.status < 300) {
+        resolve(payload);
+      } else {
+        reject(new Error(payload?.error || `Upload failed with status ${xhr.status}.`));
+      }
+    };
+    xhr.send(formData);
   });
-  const url = await getDownloadURL(storageRef);
+}
+
+export async function uploadAttachment(file, draftId, onProgress) {
+  const result = await uploadViaBackend('update-attachment', file, draftId, onProgress);
   return {
-    id: safeName,
-    name: file.name,
-    mimeType: file.type || 'application/octet-stream',
-    size: file.size,
-    url,
+    id: result.id,
+    name: result.name || file.name,
+    mimeType: result.mimeType || file.type || 'application/octet-stream',
+    size: result.size || file.size,
+    url: result.url,
     downloadable: true
   };
 }
 
 export async function uploadResourceImage(file, draftId, onProgress) {
-  if (!storage) throw new Error('Firebase Storage is not configured.');
-  const safeName = `${Date.now()}-${file.name.replace(/[^a-z0-9._-]/gi, '_')}`;
-  const storageRef = ref(storage, `resources/${draftId || 'draft'}/media/${safeName}`);
-  await new Promise((resolve, reject) => {
-    const task = uploadBytesResumable(storageRef, file);
-    task.on('state_changed',
-      (snap) => onProgress?.(Math.round((snap.bytesTransferred / snap.totalBytes) * 100)),
-      reject,
-      resolve
-    );
-  });
-  const url = await getDownloadURL(storageRef);
+  const result = await uploadViaBackend('resource-image', file, draftId, onProgress);
   return {
-    url,
-    name: file.name,
-    mimeType: file.type || 'application/octet-stream',
-    size: file.size
+    url: result.url,
+    name: result.name || file.name,
+    mimeType: result.mimeType || file.type || 'application/octet-stream',
+    size: result.size || file.size
   };
 }
 
