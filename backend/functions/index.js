@@ -101,6 +101,7 @@ async function setAdminState(uid, isAdmin) {
 
 async function applyBootstrapAdminIfNeeded(user) {
   if (!user || !user.email) return false;
+  if (user.emailVerified !== true) return false;
   const allowlist = splitEmails(BOOTSTRAP_ADMIN_EMAILS.value());
   if (!allowlist.length) return false;
   if (!allowlist.includes(String(user.email).toLowerCase())) return false;
@@ -200,12 +201,22 @@ function buildFormSchemaSnapshot(schema) {
   };
 }
 
+function escapeSpreadsheetCell(value) {
+  if (value == null) return '';
+  const str = String(value);
+  return /^[=+\-@\t\r]/.test(str) ? `'${str}` : str;
+}
+
 function flattenExportRow(row, { includeFormSchema = true } = {}) {
   const answers = row.answers || {};
   const clean = { ...row };
   delete clean.answers;
   if (!includeFormSchema) delete clean.formSchema;
-  return { ...clean, ...answers };
+  const merged = { ...clean, ...answers };
+  for (const [key, value] of Object.entries(merged)) {
+    merged[key] = escapeSpreadsheetCell(value);
+  }
+  return merged;
 }
 
 async function getSchemaForKind({ kind, schemaId }) {

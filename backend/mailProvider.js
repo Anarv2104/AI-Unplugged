@@ -33,7 +33,8 @@ function createBrevoProvider({ apiKey, senderEmail, senderName }) {
       },
       body: JSON.stringify({
         sender: { email: config.senderEmail, name: config.senderName },
-        to: recipients.map((email) => ({ email })),
+        to: [{ email: config.senderEmail, name: config.senderName }],
+        bcc: recipients.map((email) => ({ email })),
         subject,
         htmlContent: html,
         textContent: text || null

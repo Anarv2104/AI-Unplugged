@@ -27,6 +27,16 @@ export default function RichTextEditor({ value, onChange, placeholder = 'Write h
   function addLink() {
     const url = window.prompt('Enter a URL');
     if (!url) return;
+    try {
+      const parsed = new URL(url, window.location.origin);
+      if (!['http:', 'https:', 'mailto:'].includes(parsed.protocol)) {
+        window.alert('Only http, https, and mailto links are allowed.');
+        return;
+      }
+    } catch {
+      window.alert('That URL is not valid.');
+      return;
+    }
     editorRef.current?.focus();
     document.execCommand('createLink', false, url);
     onChange(editorRef.current?.innerHTML || '');

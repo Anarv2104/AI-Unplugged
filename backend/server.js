@@ -600,11 +600,11 @@ function flattenRow(row, { includeFormSchema = true } = {}) {
   if (!includeFormSchema) delete clean.formSchema;
 
   for (const [key, value] of Object.entries(clean)) {
-    clean[key] = serializeValue(value);
+    clean[key] = escapeSpreadsheetCell(serializeValue(value));
   }
 
   for (const [key, value] of Object.entries(answers)) {
-    clean[key] = serializeValue(value);
+    clean[key] = escapeSpreadsheetCell(serializeValue(value));
   }
 
   return clean;
@@ -615,6 +615,12 @@ function serializeValue(value) {
   if (value instanceof Date) return value.toISOString();
   if (typeof value === 'object') return JSON.stringify(value);
   return value;
+}
+
+function escapeSpreadsheetCell(value) {
+  if (value == null) return '';
+  const str = String(value);
+  return /^[=+\-@\t\r]/.test(str) ? `'${str}` : str;
 }
 
 async function readJson(req) {

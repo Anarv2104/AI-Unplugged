@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
+import DOMPurify from 'dompurify';
 import PageHeader from '../components/PageHeader';
 import SEO, { SITE_URL } from '../components/SEO';
 import { getPublishedResources } from '../lib/platform';
@@ -203,7 +204,7 @@ export default function ResourcesPage() {
                 {selectedResource.bodyHtml ? (
                   <div
                     className="resource-rich-copy"
-                    dangerouslySetInnerHTML={{ __html: selectedResource.bodyHtml }}
+                    dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(selectedResource.bodyHtml) }}
                   />
                 ) : (
                   <div className="resource-rich-copy">
