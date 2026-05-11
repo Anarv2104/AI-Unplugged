@@ -1,3 +1,11 @@
+const INDIA_TIME_OFFSET = '+05:30';
+
+function dateInIndiaTime(dateString, timeString = '00:00:00') {
+  if (!dateString) return null;
+  const value = new Date(`${dateString}T${timeString}${INDIA_TIME_OFFSET}`);
+  return Number.isNaN(value.getTime()) ? null : value;
+}
+
 function parseTimeOnDate(dateString, timeString) {
   if (!dateString || !timeString) return null;
   const match = String(timeString).trim().match(/^(\d{1,2}):(\d{2})\s*(AM|PM)$/i);
@@ -10,9 +18,7 @@ function parseTimeOnDate(dateString, timeString) {
   if (meridiem === 'PM' && hours < 12) hours += 12;
   if (meridiem === 'AM' && hours === 12) hours = 0;
 
-  const value = new Date(`${dateString}T00:00:00`);
-  value.setHours(hours, minutes, 0, 0);
-  return value;
+  return dateInIndiaTime(dateString, `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:00`);
 }
 
 function ensureArray(value) {
@@ -108,8 +114,8 @@ function parseDurationMinutes(duration) {
 
 function resolveEventWindow(event) {
   if (event.startTime && event.endTime && event.date) {
-    const start = new Date(`${event.date}T${event.startTime}:00`);
-    const end = new Date(`${event.date}T${event.endTime}:00`);
+    const start = dateInIndiaTime(event.date, `${event.startTime}:00`);
+    const end = dateInIndiaTime(event.date, `${event.endTime}:00`);
     return { start, end };
   }
 
@@ -120,13 +126,13 @@ function resolveEventWindow(event) {
   }
 
   if (event.date) {
-    const start = new Date(`${event.date}T00:00:00`);
+    const start = dateInIndiaTime(event.date, '00:00:00');
     const durationMinutes = parseDurationMinutes(event.duration);
     if (durationMinutes) {
       const end = new Date(start.getTime() + durationMinutes * 60 * 1000);
       return { start, end };
     }
-    const end = new Date(`${event.date}T23:59:59`);
+    const end = dateInIndiaTime(event.date, '23:59:59.999');
     return { start, end };
   }
 

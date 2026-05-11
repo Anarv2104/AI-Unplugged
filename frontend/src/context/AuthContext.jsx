@@ -14,6 +14,10 @@ import { syncCurrentUser } from '../lib/platform';
 
 export const AuthContext = createContext(null);
 
+function normalizeEmail(email) {
+  return String(email || '').trim().toLowerCase();
+}
+
 async function ensureUserProfile() {
   try {
     const syncResult = await syncCurrentUser();
@@ -91,15 +95,16 @@ export function AuthProvider({ children }) {
 
   async function loginWithEmail(email, password) {
     if (!auth) throw new Error('Firebase auth is not configured.');
-    const credential = await signInWithEmailAndPassword(auth, email, password);
+    const credential = await signInWithEmailAndPassword(auth, normalizeEmail(email), password);
     return finalizeUserState(credential.user);
   }
 
   async function signupWithEmail(email, password, displayName) {
     if (!auth) throw new Error('Firebase auth is not configured.');
-    const credential = await createUserWithEmailAndPassword(auth, email, password);
-    if (displayName) {
-      await updateProfile(credential.user, { displayName });
+    const credential = await createUserWithEmailAndPassword(auth, normalizeEmail(email), password);
+    const normalizedDisplayName = String(displayName || '').trim();
+    if (normalizedDisplayName) {
+      await updateProfile(credential.user, { displayName: normalizedDisplayName });
     }
     return finalizeUserState(credential.user);
   }
@@ -118,7 +123,7 @@ export function AuthProvider({ children }) {
 
   async function resetPassword(email) {
     if (!auth) throw new Error('Firebase auth is not configured.');
-    return sendPasswordResetEmail(auth, email);
+    return sendPasswordResetEmail(auth, normalizeEmail(email));
   }
 
   async function refreshProfile() {

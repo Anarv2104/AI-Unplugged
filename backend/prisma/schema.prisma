@@ -52,8 +52,28 @@ model Event {
   updatedAt    DateTime @updatedAt
 
   registrations EventRegistration[]
+  invites       EventInvite[]
 
   @@index([publishState])
+}
+
+model EventInvite {
+  id         String    @id @default(cuid())
+  eventId    String
+  email      String
+  name       String?
+  token      String    @unique
+  status     String    @default("pending")
+  invitedAt  DateTime  @default(now())
+  acceptedAt DateTime?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  event Event @relation(fields: [eventId], references: [id], onDelete: Cascade)
+
+  @@unique([eventId, email])
+  @@index([eventId])
+  @@index([status])
 }
 
 model EventForm {
@@ -75,6 +95,7 @@ model EventRegistration {
   eventTitle             String?
   formId                 String?
   formTitle              String?
+  formSchema             Json?
   answers                Json
   reviewStatus           String   @default("pending")
   source                 String?
@@ -83,6 +104,8 @@ model EventRegistration {
   email                  String?
   organization           String?
   entryType              String?
+  waitlistReason         String?
+  inviteId               String?
   subscribedToNewsletter Boolean  @default(false)
   createdAt              DateTime @default(now())
   updatedAt              DateTime @updatedAt
@@ -95,10 +118,26 @@ model EventRegistration {
   @@index([reviewStatus])
 }
 
+model AppErrorLog {
+  id              String   @id @default(cuid())
+  route           String?
+  method          String?
+  statusCode      Int?
+  safeMessage     String?
+  internalMessage String?
+  stack           String?
+  userId          String?
+  createdAt       DateTime @default(now())
+
+  @@index([createdAt])
+  @@index([statusCode])
+}
+
 model NodeLeadApplication {
   id           String   @id @default(cuid())
   formId       String?
   formTitle    String?
+  formSchema   Json?
   answers      Json
   email        String?
   name         String?
@@ -124,6 +163,8 @@ model HostApplication {
   reviewStatus      String   @default("pending")
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
+
+  @@index([reviewStatus])
 }
 
 model Skill {

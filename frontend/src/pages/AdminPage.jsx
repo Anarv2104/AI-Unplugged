@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import RichTextEditor from '../components/RichTextEditor';
 import { useAuth } from '../context/useAuth';
@@ -7,18 +7,22 @@ import { defaultNodeLeadFormSchema, FIELD_TYPES, UPDATE_CATEGORIES } from '../li
 import {
   deleteDocument,
   exportDatasetForEvent,
-  geocodeAddress,
   getAdminEvents,
   getAdminResources,
   getAdminUpdates,
   getCommentsForAdmin,
   getEventRegistrations,
+  getErrorLogs,
+  getEventInvites,
   getFormSchemas,
+  getHostApplications,
   getNodeLeadApplications,
   getHomeSpotlightSettings,
   getSetupStatus,
   getSubscribers,
   grantAdminRole,
+  addEventInvite,
+  importEventInvites,
   importContentFile,
   leaveAdminRole,
   listAdmins,
@@ -28,12 +32,14 @@ import {
   saveHomeSpotlightSettings,
   saveResource,
   saveUpdatePost,
+  sendEventInvites,
   sendNewsletterCampaign,
   updateNewsletterPreference,
   updateCommentStatus,
   updateReviewStatus,
   uploadAttachment,
-  uploadResourceImage
+  uploadResourceImage,
+  revokeEventInvite
 } from '../lib/platform';
 import {
   downloadSkillMarkdown,
@@ -47,11 +53,13 @@ const TAB_LABELS = {
   overview: 'Overview',
   events: 'Events',
   'node-lead': 'Node Lead',
+  hosts: 'Hosts',
   updates: 'Updates',
   resources: 'Resources',
   skills: 'Skills',
   newsletter: 'Newsletter',
   profile: 'Profile',
+  errors: 'Errors',
   admins: 'Admins'
 };
 const tabs = Object.keys(TAB_LABELS);
@@ -77,6 +85,12 @@ const TAB_ICONS = {
       <circle cx="6" cy="5" r="3" stroke="currentColor" strokeWidth="1.5"/>
       <path d="M1 14c0-2.761 2.239-5 5-5s5 2.239 5 5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
       <path d="M12 8v4M10 10h4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+    </svg>
+  ),
+  hosts: (
+    <svg width="15" height="15" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+      <path d="M8 2.25l5.5 4v6.25A1.5 1.5 0 0 1 12 14H4a1.5 1.5 0 0 1-1.5-1.5V6.25l5.5-4z" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round"/>
+      <path d="M6 14V9.5h4V14" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round"/>
     </svg>
   ),
   updates: (
@@ -107,6 +121,12 @@ const TAB_ICONS = {
     <svg width="15" height="15" viewBox="0 0 16 16" fill="none" aria-hidden="true">
       <circle cx="8" cy="5" r="3" stroke="currentColor" strokeWidth="1.5" />
       <path d="M2.5 14c0-3.038 2.462-5.5 5.5-5.5s5.5 2.462 5.5 5.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+    </svg>
+  ),
+  errors: (
+    <svg width="15" height="15" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+      <path d="M8 2l6 11H2L8 2z" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round"/>
+      <path d="M8 6v3M8 11.5h.01" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
     </svg>
   ),
   admins: (
@@ -140,10 +160,6 @@ function fieldTemplate() {
   };
 }
 
-const DEFAULT_MAP_LAT = 23.0456;
-const DEFAULT_MAP_LNG = 72.5271;
-const DEFAULT_MAP_ADDRESS = '1st Floor, D Block, Satyam Corporate Square, Sindhu Bhavan Rd, Bodakdev, Ahmedabad, Gujarat 380054';
-
 function emptyEventDraft() {
   return {
     title: '',
@@ -161,12 +177,28 @@ function emptyEventDraft() {
     startTime: '',
     endTime: '',
     formId: '',
-    registrationMode: 'default',
-    mapEnabled: false,
-    mapLat: DEFAULT_MAP_LAT,
-    mapLng: DEFAULT_MAP_LNG,
-    mapAddress: DEFAULT_MAP_ADDRESS
+    registrationMode: 'default'
   };
+}
+
+function formatDateForDisplay(dateValue) {
+  const match = String(dateValue || '').match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match) return '';
+  return `${match[3]}/${match[2]}/${match[1]}`;
+}
+
+function formatAdminDate(value) {
+  if (!value) return 'Not recorded';
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? 'Not recorded' : date.toLocaleString();
+}
+
+function normalizeSlug(value) {
+  return String(value || '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-+|-+$/g, '');
 }
 
 function emptyResourceDraft() {
@@ -192,6 +224,58 @@ function schemaFromEvent(event) {
     publishState: 'published',
     fields: [baseNameField()]
   };
+}
+
+function normalizeFieldsForCompare(fields = []) {
+  return fields.map((field) => ({
+    id: String(field.id || ''),
+    type: String(field.type || 'text'),
+    label: String(field.label || ''),
+    required: Boolean(field.required),
+    placeholder: String(field.placeholder || ''),
+    helperText: String(field.helperText || ''),
+    options: Array.isArray(field.options) ? field.options.map(String) : [],
+    minLength: field.minLength || '',
+    showWhen: field.showWhen || null
+  }));
+}
+
+function fieldsMatch(left = [], right = []) {
+  return JSON.stringify(normalizeFieldsForCompare(left)) === JSON.stringify(normalizeFieldsForCompare(right));
+}
+
+function isDefaultNodeLeadSchema(schema) {
+  return fieldsMatch(schema?.fields || [], defaultNodeLeadFormSchema.fields);
+}
+
+function validateEventDraft(draft) {
+  const missing = [];
+  if (!String(draft.title || '').trim()) missing.push('Title');
+  if (!String(draft.date || '').trim()) missing.push('Date');
+  if (!String(draft.location || '').trim()) missing.push('Location');
+  if (!String(draft.type || '').trim()) missing.push('Type');
+  if (!String(draft.entry || '').trim()) missing.push('Entry');
+  if (!String(draft.publishState || '').trim()) missing.push('Publish state');
+  return missing;
+}
+
+function AnswerDetails({ answers }) {
+  const entries = Object.entries(answers || {}).filter(([, value]) => value !== '' && value != null);
+  if (!entries.length) return null;
+
+  return (
+    <details className="admin-answer-details">
+      <summary>View answers</summary>
+      <dl>
+        {entries.map(([key, value]) => (
+          <div key={key}>
+            <dt>{key}</dt>
+            <dd>{Array.isArray(value) ? value.join(', ') : String(value)}</dd>
+          </div>
+        ))}
+      </dl>
+    </details>
+  );
 }
 
 function encodeFile(file) {
@@ -295,15 +379,21 @@ export default function AdminPage() {
   const [forms, setForms] = useState([]);
   const [registrations, setRegistrations] = useState([]);
   const [nodeLeads, setNodeLeads] = useState([]);
+  const [hostApplications, setHostApplications] = useState([]);
   const [updates, setUpdates] = useState([]);
   const [resources, setResources] = useState([]);
   const [skills, setSkills] = useState([]);
   const [comments, setComments] = useState([]);
   const [subscribers, setSubscribers] = useState([]);
   const [admins, setAdmins] = useState([]);
+  const [errorLogs, setErrorLogs] = useState([]);
+  const [eventInvites, setEventInvites] = useState([]);
   const [setupStatus, setSetupStatus] = useState({ warnings: [], diagnostics: null, mailProvider: 'brevo' });
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
+  const [eventFormError, setEventFormError] = useState('');
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [lastRefreshedAt, setLastRefreshedAt] = useState(null);
   const [publishSuccess, setPublishSuccess] = useState(null);
   const [isSaving, setIsSaving] = useState(false);
   const [homeSpotlightIds, setHomeSpotlightIds] = useState([]);
@@ -313,6 +403,7 @@ export default function AdminPage() {
 
   const [eventDraft, setEventDraft] = useState(emptyEventDraft());
   const [eventCustomSchema, setEventCustomSchema] = useState(schemaFromEvent(emptyEventDraft()));
+  const [inviteDraft, setInviteDraft] = useState({ name: '', email: '' });
   const [nodeLeadMode, setNodeLeadMode] = useState('default');
   const [nodeLeadSchema, setNodeLeadSchema] = useState(defaultNodeLeadFormSchema);
   const [updateDraft, setUpdateDraft] = useState({ id: '', title: '', slug: '', excerpt: '', bodyHtml: '', category: 'update', commentMode: 'moderated', publishState: 'draft', authorName: 'AI Unplugged Team', scope: 'general', eventId: '', attachments: [] });
@@ -322,10 +413,16 @@ export default function AdminPage() {
   const [adminDraftEmail, setAdminDraftEmail] = useState('');
   const [isUploadingAttachment, setIsUploadingAttachment] = useState(false);
   const [isUploadingResourceImage, setIsUploadingResourceImage] = useState(false);
-  const [isGeocoding, setIsGeocoding] = useState(false);
   const [selectedEventExportId, setSelectedEventExportId] = useState('');
   const [selectedUpdateId, setSelectedUpdateId] = useState('');
   const [profileSaving, setProfileSaving] = useState(false);
+  const eventFormRef = useRef(null);
+  const eventTitleRef = useRef(null);
+  const updateFormRef = useRef(null);
+  const updateTitleRef = useRef(null);
+  const resourceFormRef = useRef(null);
+  const resourceTitleRef = useRef(null);
+  const refreshInFlightRef = useRef(false);
 
   const eventForms = useMemo(() => forms.filter((item) => item.kind === 'event'), [forms]);
   const sortedEvents = useMemo(() => sortEventsByState(events), [events]);
@@ -349,6 +446,10 @@ export default function AdminPage() {
     () => Object.fromEntries(updates.map((item) => [item.id, item])),
     [updates]
   );
+  const eventLookup = useMemo(
+    () => Object.fromEntries(events.map((item) => [item.id, item])),
+    [events]
+  );
   const filteredRegistrations = useMemo(
     () => registrations.filter((item) => !selectedEventExportId || item.eventId === selectedEventExportId),
     [registrations, selectedEventExportId]
@@ -363,69 +464,106 @@ export default function AdminPage() {
       total: filteredRegistrations.length,
       accepted: 0,
       pending: 0,
+      waitlisted: 0,
       rejected: 0,
     };
 
     for (const item of filteredRegistrations) {
       const status = String(item.reviewStatus || 'pending').toLowerCase();
       if (status === 'accepted') counts.accepted += 1;
+      else if (status === 'waitlisted') counts.waitlisted += 1;
       else if (status === 'rejected') counts.rejected += 1;
       else counts.pending += 1;
     }
 
     return counts;
   }, [filteredRegistrations]);
+  const registrationsByStatus = useMemo(() => ({
+    accepted: filteredRegistrations.filter((item) => item.reviewStatus === 'accepted'),
+    pending: filteredRegistrations.filter((item) => !['accepted', 'waitlisted', 'rejected'].includes(item.reviewStatus || 'pending')),
+    waitlisted: filteredRegistrations.filter((item) => item.reviewStatus === 'waitlisted'),
+    rejected: filteredRegistrations.filter((item) => item.reviewStatus === 'rejected')
+  }), [filteredRegistrations]);
 
-  async function refreshAll() {
-    setError('');
-    const setup = await getSetupStatus().catch((nextError) => ({
-      warnings: [nextError?.message || 'Could not read setup status.'],
-      diagnostics: null,
-      mailProvider: 'brevo'
-    }));
-    setSetupStatus(setup);
-
-    if (!isAuthenticated || !isAdmin) return;
-
+  const refreshAll = useCallback(async ({ silent = false } = {}) => {
+    if (refreshInFlightRef.current) return;
+    refreshInFlightRef.current = true;
+    setIsRefreshing(true);
+    if (!silent) setError('');
     try {
-      const [nextEvents, nextForms, nextRegistrations, nextNodeLeads, nextUpdates, nextResources, nextSkills, nextComments, nextSubscribers, nextAdmins, nextHomeSettings] = await Promise.all([
+      const setup = await getSetupStatus().catch((nextError) => ({
+        warnings: [nextError?.message || 'Could not read setup status.'],
+        diagnostics: null,
+        mailProvider: 'brevo'
+      }));
+      setSetupStatus(setup);
+
+      if (!isAuthenticated || !isAdmin) return;
+
+      const [nextEvents, nextForms, nextRegistrations, nextNodeLeads, nextHostApplications, nextUpdates, nextResources, nextSkills, nextComments, nextSubscribers, nextAdmins, nextHomeSettings, nextErrorLogs] = await Promise.all([
         getAdminEvents(),
         getFormSchemas(),
         getEventRegistrations(),
         getNodeLeadApplications(),
+        getHostApplications(),
         getAdminUpdates(),
         getAdminResources(),
         getAdminSkills(),
         getCommentsForAdmin(),
         getSubscribers(),
         listAdmins(),
-        getHomeSpotlightSettings()
+        getHomeSpotlightSettings(),
+        getErrorLogs()
       ]);
 
       setEvents(nextEvents);
       setForms(nextForms);
       setRegistrations(nextRegistrations);
       setNodeLeads(nextNodeLeads);
+      setHostApplications(nextHostApplications);
       setUpdates(nextUpdates);
       setResources(nextResources);
       setSkills(nextSkills);
       setComments(nextComments);
       setSubscribers(nextSubscribers);
       setAdmins(nextAdmins);
+      setErrorLogs(nextErrorLogs);
       setHomeSpotlightIds(Array.isArray(nextHomeSettings?.featuredHomeEventIds) ? nextHomeSettings.featuredHomeEventIds.slice(0, 2) : []);
+      setLastRefreshedAt(new Date());
 
-      const activeNodeLeadSchema = nextForms.find((item) => item.kind === 'nodeLead' && item.isDefault) || nextForms.find((item) => item.kind === 'nodeLead') || defaultNodeLeadFormSchema;
-      setNodeLeadSchema(activeNodeLeadSchema);
-      setNodeLeadMode(activeNodeLeadSchema.id === defaultNodeLeadFormSchema.id ? 'default' : 'custom');
+      if (tab !== 'node-lead' || nodeLeadSubTab !== 'form-builder') {
+        const activeNodeLeadSchema = nextForms.find((item) => item.kind === 'nodeLead' && item.isDefault) || nextForms.find((item) => item.kind === 'nodeLead') || defaultNodeLeadFormSchema;
+        setNodeLeadSchema(activeNodeLeadSchema);
+        setNodeLeadMode(isDefaultNodeLeadSchema(activeNodeLeadSchema) ? 'default' : 'custom');
+      }
     } catch (nextError) {
-      setError(nextError?.message || 'Could not load admin data.');
+      if (!silent) setError(nextError?.message || 'Could not load admin data.');
+    } finally {
+      refreshInFlightRef.current = false;
+      setIsRefreshing(false);
     }
-  }
+  }, [isAuthenticated, isAdmin, nodeLeadSubTab, tab]);
 
   useEffect(() => {
     document.title = 'Admin - AI Unplugged';
     refreshAll();
-  }, [isAuthenticated, isAdmin]);
+  }, [isAuthenticated, isAdmin, refreshAll]);
+
+  useEffect(() => {
+    if (!isAuthenticated || !isAdmin) return undefined;
+    const interval = window.setInterval(() => refreshAll({ silent: true }), 15000);
+    const refreshWhenActive = () => refreshAll({ silent: true });
+    const refreshWhenVisible = () => {
+      if (document.visibilityState === 'visible') refreshAll({ silent: true });
+    };
+    window.addEventListener('focus', refreshWhenActive);
+    document.addEventListener('visibilitychange', refreshWhenVisible);
+    return () => {
+      window.clearInterval(interval);
+      window.removeEventListener('focus', refreshWhenActive);
+      document.removeEventListener('visibilitychange', refreshWhenVisible);
+    };
+  }, [isAuthenticated, isAdmin, refreshAll]);
 
   useEffect(() => {
     const currentParamTab = searchParams.get('tab');
@@ -436,6 +574,16 @@ export default function AdminPage() {
 
   useEffect(() => {
     setEventCustomSchema(schemaFromEvent(eventDraft));
+  }, [eventDraft.id]);
+
+  useEffect(() => {
+    if (!eventDraft.id) {
+      setEventInvites([]);
+      return;
+    }
+    getEventInvites(eventDraft.id)
+      .then(setEventInvites)
+      .catch((nextError) => setError(nextError?.message || 'Could not load event invites.'));
   }, [eventDraft.id]);
 
   useEffect(() => {
@@ -453,6 +601,7 @@ export default function AdminPage() {
   function resetMessages() {
     setMessage('');
     setError('');
+    setEventFormError('');
   }
 
   function changeTab(nextTab) {
@@ -461,6 +610,13 @@ export default function AdminPage() {
     if (nextTab === 'overview') nextParams.delete('tab');
     else nextParams.set('tab', nextTab);
     setSearchParams(nextParams, { replace: true });
+  }
+
+  function scrollToEditableForm(formRef, focusRef) {
+    window.requestAnimationFrame(() => {
+      formRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      window.setTimeout(() => focusRef.current?.focus(), 250);
+    });
   }
 
   function openSpotlightModal() {
@@ -488,13 +644,16 @@ export default function AdminPage() {
 
   function selectEvent(event) {
     const registrationMode = event.formId ? 'custom' : 'default';
-    setEventDraft({ ...event, registrationMode });
+    setEventDraft({ ...event, registrationMode, dateDisplay: formatDateForDisplay(event.date) });
     const schema = eventForms.find((item) => item.id === event.formId);
     setEventCustomSchema(schema || schemaFromEvent(event));
+    changeTab('events');
     setEventsSubTab('events');
+    scrollToEditableForm(eventFormRef, eventTitleRef);
   }
 
 function selectResource(resource) {
+    changeTab('resources');
     setResourceDraft({
       id: resource.id || '',
       title: resource.title || '',
@@ -506,42 +665,33 @@ function selectResource(resource) {
       image: resource.image || null,
       publishState: resource.publishState || 'draft'
     });
+    scrollToEditableForm(resourceFormRef, resourceTitleRef);
   }
 
-  async function resolveEventMapAddress(addressInput) {
-    const targetAddress = String(addressInput || eventDraft.mapAddress || eventDraft.location || '').trim();
-    if (!targetAddress || !eventDraft.mapEnabled) return null;
-
-    setIsGeocoding(true);
-    try {
-      const resolved = await geocodeAddress(targetAddress);
-      setEventDraft((current) => ({
-        ...current,
-        location: current.location || resolved.address,
-        mapAddress: resolved.address,
-        mapLat: resolved.lat,
-        mapLng: resolved.lng
-      }));
-      setMessage('Map coordinates updated from address.');
-      return resolved;
-    } catch (nextError) {
-      setError(nextError?.message || 'Could not resolve the event address.');
-      return null;
-    } finally {
-      setIsGeocoding(false);
-    }
+  function selectUpdate(post) {
+    changeTab('updates');
+    setUpdatesSubTab('posts');
+    setUpdateDraft({
+      ...post,
+      scope: post.scope || 'general',
+      eventId: post.eventId || '',
+      attachments: post.attachments || [],
+      bodyHtml: post.bodyHtml || (post.body || []).map((paragraph) => `<p>${paragraph}</p>`).join('')
+    });
+    scrollToEditableForm(updateFormRef, updateTitleRef);
   }
 
   async function handleSaveEvent(event) {
     event.preventDefault();
     resetMessages();
+    const missingFields = validateEventDraft(eventDraft);
+    if (missingFields.length) {
+      setEventFormError(`Add ${missingFields.join(', ')} before saving this event.`);
+      scrollToEditableForm(eventFormRef, eventTitleRef);
+      return;
+    }
     setIsSaving(true);
     try {
-      let resolvedMap = null;
-      if (eventDraft.mapEnabled) {
-        resolvedMap = await resolveEventMapAddress(eventDraft.mapAddress || eventDraft.location);
-      }
-
       let formId = '';
       if (eventDraft.registrationMode === 'custom') {
         const savedFormId = await saveFormSchema({
@@ -558,10 +708,8 @@ function selectResource(resource) {
 
       const savedId = await saveEvent({
         ...eventDraft,
-        formId,
-        mapAddress: resolvedMap?.address || eventDraft.mapAddress || eventDraft.location,
-        mapLat: resolvedMap?.lat ?? eventDraft.mapLat,
-        mapLng: resolvedMap?.lng ?? eventDraft.mapLng
+        dateDisplay: formatDateForDisplay(eventDraft.date),
+        formId
       });
       const isPublished = eventDraft.publishState === 'published';
       setEventDraft(emptyEventDraft());
@@ -645,11 +793,87 @@ function selectResource(resource) {
     }
   }
 
+  async function handleHostExport(format) {
+    resetMessages();
+    try {
+      const result = await exportDatasetForEvent('hostApplications', format);
+      downloadExportFile(result);
+      setMessage('Host applications export prepared.');
+    } catch (nextError) {
+      setError(nextError?.message || 'Could not export host applications.');
+    }
+  }
+
+  async function reloadEventInvites(eventId = eventDraft.id) {
+    if (!eventId) return;
+    const invites = await getEventInvites(eventId);
+    setEventInvites(invites);
+  }
+
+  async function handleAddInvite(event) {
+    event.preventDefault();
+    if (!eventDraft.id) {
+      setEventFormError('Save this invite-only event before adding invites.');
+      return;
+    }
+    resetMessages();
+    try {
+      await addEventInvite(eventDraft.id, inviteDraft);
+      setInviteDraft({ name: '', email: '' });
+      await reloadEventInvites(eventDraft.id);
+      setMessage('Invite added.');
+    } catch (nextError) {
+      setError(nextError?.message || 'Could not add invite.');
+    }
+  }
+
+  async function handleInviteUpload(file) {
+    if (!file || !eventDraft.id) return;
+    resetMessages();
+    try {
+      const upload = await encodeFile(file);
+      const result = await importEventInvites(eventDraft.id, upload);
+      await reloadEventInvites(eventDraft.id);
+      setMessage(`Imported ${result.imported || 0} invites.`);
+    } catch (nextError) {
+      setError(nextError?.message || 'Could not import invites.');
+    }
+  }
+
+  async function handleSendInvites() {
+    if (!eventDraft.id) return;
+    resetMessages();
+    try {
+      const result = await sendEventInvites(eventDraft.id);
+      await reloadEventInvites(eventDraft.id);
+      setMessage(`Sent ${result.sent || 0} invite emails.`);
+    } catch (nextError) {
+      setError(nextError?.message || 'Could not send invites.');
+    }
+  }
+
+  async function handleRevokeInvite(inviteId) {
+    if (!eventDraft.id || !inviteId) return;
+    resetMessages();
+    try {
+      await revokeEventInvite(eventDraft.id, inviteId);
+      await reloadEventInvites(eventDraft.id);
+      setMessage('Invite revoked.');
+    } catch (nextError) {
+      setError(nextError?.message || 'Could not revoke invite.');
+    }
+  }
+
   async function patchStatus(collectionName, id, value) {
     resetMessages();
     try {
       if (collectionName === 'comments') await updateCommentStatus(id, value);
-      else await updateReviewStatus(collectionName, id, value);
+      else {
+        const options = collectionName === 'eventRegistrations' && value === 'accepted'
+          ? { overrideCapacity: window.confirm('Accept this registration even if the event is already at capacity?') }
+          : {};
+        await updateReviewStatus(collectionName, id, value, options);
+      }
       setMessage('Status updated.');
       refreshAll();
     } catch (nextError) {
@@ -690,7 +914,7 @@ function selectResource(resource) {
     resetMessages();
     setIsSaving(true);
     try {
-      const slug = updateDraft.slug || updateDraft.title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+      const slug = normalizeSlug(updateDraft.slug || updateDraft.title);
       await saveUpdatePost({
         ...updateDraft,
         slug,
@@ -722,7 +946,7 @@ function selectResource(resource) {
     setIsUploadingResourceImage(true);
     resetMessages();
     try {
-      const image = await uploadResourceImage(file, resourceDraft.id || resourceDraft.slug || 'draft');
+      const image = await uploadResourceImage(file, resourceDraft.id || normalizeSlug(resourceDraft.slug) || 'draft');
       setResourceDraft((current) => ({ ...current, image }));
       setMessage('Resource image uploaded.');
     } catch (nextError) {
@@ -737,7 +961,7 @@ function selectResource(resource) {
     resetMessages();
     setIsSaving(true);
     try {
-      const slug = resourceDraft.slug || resourceDraft.title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+      const slug = normalizeSlug(resourceDraft.slug || resourceDraft.title);
       await saveResource({
         ...resourceDraft,
         slug,
@@ -914,6 +1138,15 @@ function selectResource(resource) {
         </aside>
 
         <div className="admin-main">
+          <div className="admin-live-status" aria-live="polite">
+            <div>
+              <span className="admin-live-status-label">{isRefreshing ? 'Refreshing database data...' : 'Database data loaded'}</span>
+              {lastRefreshedAt ? <span className="admin-live-status-time">Last updated {lastRefreshedAt.toLocaleTimeString()}</span> : null}
+            </div>
+            <button type="button" className="admin-refresh-button" disabled={isRefreshing} onClick={() => refreshAll()}>
+              {isRefreshing ? 'Refreshing...' : 'Refresh database'}
+            </button>
+          </div>
           {message ? <div className="auth-success">{message}</div> : null}
           {error ? <div className="form-error" style={{ display: 'block' }}>{error}</div> : null}
           {publishSuccess ? (
@@ -967,6 +1200,13 @@ function selectResource(resource) {
                   </div>
                   <div className="admin-stat-number">{nodeLeads.length}</div>
                   <div className="admin-stat-label">Node Leads</div>
+                </div>
+                <div className="admin-stat-card">
+                  <div className="admin-stat-icon">
+                    <svg width="20" height="20" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M8 2.25l5.5 4v6.25A1.5 1.5 0 0 1 12 14H4a1.5 1.5 0 0 1-1.5-1.5V6.25l5.5-4z" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round"/><path d="M6 14V9.5h4V14" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round"/></svg>
+                  </div>
+                  <div className="admin-stat-number">{hostApplications.length}</div>
+                  <div className="admin-stat-label">Hosts</div>
                 </div>
                 <div className="admin-stat-card">
                   <div className="admin-stat-icon">
@@ -1027,18 +1267,18 @@ function selectResource(resource) {
 
               {eventsSubTab === 'events' ? (
                 <>
-                  <form className="form-card" onSubmit={handleSaveEvent}>
+                  <form className="form-card admin-edit-form" onSubmit={handleSaveEvent} ref={eventFormRef}>
                     <h3>{eventDraft.id ? 'Edit event' : 'Create event'}</h3>
                     <div className="form-field field-inline-2">
-                      <div className="form-field"><label className="form-label">Title</label><input className="form-input" value={eventDraft.title} onChange={(e) => setEventDraft((c) => ({ ...c, title: e.target.value }))} /></div>
+                      <div className="form-field"><label className="form-label">Title <span className="hint">Required</span></label><input className="form-input" ref={eventTitleRef} value={eventDraft.title} onChange={(e) => setEventDraft((c) => ({ ...c, title: e.target.value }))} /></div>
                       <div className="form-field"><label className="form-label">Format</label><input className="form-input" value={eventDraft.format} onChange={(e) => setEventDraft((c) => ({ ...c, format: e.target.value }))} /></div>
                     </div>
                     <div className="form-field field-inline-2">
-                      <div className="form-field"><label className="form-label">Date</label><input className="form-input" type="date" value={eventDraft.date} onChange={(e) => setEventDraft((c) => ({ ...c, date: e.target.value }))} /></div>
-                      <div className="form-field"><label className="form-label">Display date</label><input className="form-input" value={eventDraft.dateDisplay} onChange={(e) => setEventDraft((c) => ({ ...c, dateDisplay: e.target.value }))} /></div>
+                      <div className="form-field"><label className="form-label">Date <span className="hint">Required</span></label><input className="form-input" type="date" value={eventDraft.date} onChange={(e) => setEventDraft((c) => ({ ...c, date: e.target.value, dateDisplay: formatDateForDisplay(e.target.value) }))} /></div>
+                      <div className="form-field"><label className="form-label">Display date</label><input className="form-input" placeholder="dd/mm/yyyy" value={eventDraft.dateDisplay} readOnly /></div>
                     </div>
                     <div className="form-field field-inline-2">
-                      <div className="form-field"><label className="form-label">Location</label><input className="form-input" value={eventDraft.location} onChange={(e) => setEventDraft((c) => ({ ...c, location: e.target.value, mapAddress: c.mapEnabled ? e.target.value : c.mapAddress }))} onBlur={() => resolveEventMapAddress(eventDraft.location)} /></div>
+                      <div className="form-field"><label className="form-label">Location <span className="hint">Required</span></label><input className="form-input" value={eventDraft.location} onChange={(e) => setEventDraft((c) => ({ ...c, location: e.target.value }))} /></div>
                       <div className="form-field"><label className="form-label">Duration</label><input className="form-input" value={eventDraft.duration} onChange={(e) => setEventDraft((c) => ({ ...c, duration: e.target.value }))} /></div>
                     </div>
                     <div className="form-field field-inline-2">
@@ -1054,26 +1294,6 @@ function selectResource(resource) {
                       <div className="form-field"><label className="form-label">Capacity</label><input className="form-input" type="number" value={eventDraft.capacity || 0} onChange={(e) => setEventDraft((c) => ({ ...c, capacity: Number(e.target.value) }))} /></div>
                     </div>
                     <div className="form-field"><label className="form-label">Tagline</label><textarea className="form-textarea" value={eventDraft.tagline} onChange={(e) => setEventDraft((c) => ({ ...c, tagline: e.target.value }))} /></div>
-                    <div className="dashboard-card">
-                      <h3>Map</h3>
-                      <label className="checkbox-inline" style={{ marginBottom: 16 }}>
-                        <input type="checkbox" checked={Boolean(eventDraft.mapEnabled)} onChange={(e) => setEventDraft((c) => ({ ...c, mapEnabled: e.target.checked }))} />
-                        Show map on event page
-                      </label>
-                      {eventDraft.mapEnabled ? (
-                        <>
-                          <div className="form-field field-inline-2">
-                            <div className="form-field"><label className="form-label">Latitude</label><input className="form-input" type="number" step="0.0001" value={eventDraft.mapLat} onChange={(e) => setEventDraft((c) => ({ ...c, mapLat: Number(e.target.value) }))} /></div>
-                            <div className="form-field"><label className="form-label">Longitude</label><input className="form-input" type="number" step="0.0001" value={eventDraft.mapLng} onChange={(e) => setEventDraft((c) => ({ ...c, mapLng: Number(e.target.value) }))} /></div>
-                          </div>
-                          <div className="form-field"><label className="form-label">Address (shown on map)</label><input className="form-input" value={eventDraft.mapAddress} onChange={(e) => setEventDraft((c) => ({ ...c, mapAddress: e.target.value }))} onBlur={() => resolveEventMapAddress(eventDraft.mapAddress)} /></div>
-                          <div className="page-sub" style={{ marginTop: '-6px', marginBottom: 12 }}>
-                            {isGeocoding ? 'Resolving address...' : 'Enter the event address first. Coordinates are filled automatically, and you can still override them manually.'}
-                          </div>
-                          <button type="button" className="btn-secondary" style={{ fontSize: '0.78rem' }} onClick={() => setEventDraft((c) => ({ ...c, mapLat: DEFAULT_MAP_LAT, mapLng: DEFAULT_MAP_LNG, mapAddress: DEFAULT_MAP_ADDRESS }))}>Reset to House of Starts</button>
-                        </>
-                      ) : null}
-                    </div>
                     <div className="form-field">
                       <label className="form-label">Registration form</label>
                       <select className="form-select" value={eventDraft.registrationMode || 'default'} onChange={(e) => setEventDraft((c) => ({ ...c, registrationMode: e.target.value }))}>
@@ -1082,12 +1302,64 @@ function selectResource(resource) {
                       </select>
                     </div>
                     {eventDraft.registrationMode === 'custom' ? (
-                      <div className="dashboard-card">
-                        <h3>Custom event form</h3>
+                      <div className="dashboard-card admin-form-mode-card is-custom">
+                        <p className="section-label">Custom registration questions</p>
+                        <h3>Ask attendees event-specific questions</h3>
+                        <p className="page-sub">These fields are shown to users when they apply/register for this event. Event details above stay visible and required.</p>
                         <div className="form-field"><label className="form-label">Form title</label><input className="form-input" value={eventCustomSchema.title || ''} onChange={(e) => setEventCustomSchema((c) => ({ ...c, title: e.target.value }))} /></div>
                         <FieldBuilder schema={eventCustomSchema} onChange={setEventCustomSchema} />
                       </div>
+                    ) : (
+                      <div className="admin-form-mode-card is-default">
+                        <strong>Default registration form active.</strong>
+                        <p>The standard attendee registration questions will be used for this event.</p>
+                      </div>
+                    )}
+                    {eventDraft.entry === 'Invite Only' ? (
+                      <div className="dashboard-card admin-form-mode-card is-custom">
+                        <p className="section-label">Invite-only access</p>
+                        <h3>Manage invited attendees</h3>
+                        <p className="page-sub">Save the event first, then add invites manually or import a CSV/XLSX with name and email columns. Invite links are emailed directly to attendees.</p>
+                        {eventDraft.id ? (
+                          <>
+                            <div className="form-field field-inline-2">
+                              <div className="form-field">
+                                <label className="form-label">Invitee name</label>
+                                <input className="form-input" value={inviteDraft.name} onChange={(e) => setInviteDraft((current) => ({ ...current, name: e.target.value }))} />
+                              </div>
+                              <div className="form-field">
+                                <label className="form-label">Invitee email</label>
+                                <input className="form-input" type="email" value={inviteDraft.email} onChange={(e) => setInviteDraft((current) => ({ ...current, email: e.target.value }))} />
+                              </div>
+                            </div>
+                            <div className="admin-inline-actions">
+                              <button type="button" className="btn-secondary" onClick={handleAddInvite}>Add Invite</button>
+                              <label className="btn-secondary">
+                                Import CSV/XLSX
+                                <input type="file" accept=".csv,.xlsx,.xls" style={{ display: 'none' }} onChange={(e) => e.target.files?.[0] && handleInviteUpload(e.target.files[0])} />
+                              </label>
+                              <button type="button" className="btn-primary" onClick={handleSendInvites}>Send Invite Emails</button>
+                            </div>
+                            <div className="admin-list">
+                              {eventInvites.map((invite) => (
+                                <div className="admin-list-row" key={invite.id}>
+                                  <div>
+                                    <strong>{invite.name || 'Invited guest'}</strong>
+                                    <p>{invite.email}</p>
+                                  </div>
+                                  <span>{invite.status}</span>
+                                  <button type="button" className="auth-link danger-link" onClick={() => handleRevokeInvite(invite.id)}>Revoke</button>
+                                </div>
+                              ))}
+                              {!eventInvites.length ? <div className="empty-state">No invites yet.</div> : null}
+                            </div>
+                          </>
+                        ) : (
+                          <div className="form-status-message">Save this event before adding invitees.</div>
+                        )}
+                      </div>
                     ) : null}
+                    {eventFormError ? <div className="form-status-message" role="alert">{eventFormError}</div> : null}
                     <div className="admin-inline-actions">
                       <button type="submit" className="btn-primary" disabled={isSaving}>{isSaving ? 'Saving...' : eventDraft.id ? 'Update Event' : 'Save Event'}</button>
                       {eventDraft.id ? <button type="button" className="btn-secondary" onClick={() => { setEventDraft(emptyEventDraft()); setEventCustomSchema(schemaFromEvent(emptyEventDraft())); }}>Clear</button> : null}
@@ -1219,24 +1491,48 @@ function selectResource(resource) {
                     <span className="event-tag">Total {registrationStats.total}</span>
                     <span className="event-tag">Accepted {registrationStats.accepted}</span>
                     <span className="event-tag">Pending {registrationStats.pending}</span>
+                    <span className="event-tag">Waitlisted {registrationStats.waitlisted}</span>
                     <span className="event-tag">Rejected {registrationStats.rejected}</span>
                   </div>
                   <div className="admin-table">
-                    {filteredRegistrations.map((item) => (
+                    {[
+                      ['accepted', 'Accepted'],
+                      ['pending', 'Pending review'],
+                      ['waitlisted', 'Waitlist'],
+                      ['rejected', 'Rejected']
+                    ].map(([statusKey, label]) => (
+                      <div className="registration-status-group" key={statusKey}>
+                        <h4>{label} ({registrationsByStatus[statusKey].length})</h4>
+                        {registrationsByStatus[statusKey].map((item) => {
+                          const relatedEvent = eventLookup[item.eventId] || {};
+                          const capacity = Number(relatedEvent.capacity || 0);
+                          const activeForEvent = registrations.filter((registration) => registration.eventId === item.eventId && registration.reviewStatus !== 'rejected').length;
+                          return (
                         <div className="admin-table-row" key={item.id}>
-                          <div><strong>{item.name || item.answers?.name || 'Unnamed'}</strong><p>{item.email || item.answers?.email}</p><p>{item.registrationId}</p></div>
+                          <div>
+                            <strong>{item.name || item.answers?.name || 'Unnamed'}</strong>
+                            <p>{item.email || item.answers?.email}</p>
+                            <p>{item.registrationId}</p>
+                            {item.reviewStatus === 'waitlisted' ? <p>The room is currently full. We’ll let them know if more seats open.</p> : null}
+                            <AnswerDetails answers={item.answers} />
+                          </div>
                           <div>
                             <strong>{item.eventTitle}</strong>
                             <p>{item.entryType || 'application'}</p>
+                            {capacity ? <p>{activeForEvent}/{capacity} active registrations</p> : null}
                           </div>
                           <select className="form-select" value={item.reviewStatus || 'pending'} onChange={(e) => patchStatus('eventRegistrations', item.id, e.target.value)}>
                             <option value="pending">pending</option>
                             <option value="shortlisted">shortlisted</option>
                             <option value="accepted">accepted</option>
+                            <option value="waitlisted">waitlisted</option>
                             <option value="rejected">rejected</option>
                           </select>
                         </div>
-                      ))}
+                          );
+                        })}
+                      </div>
+                    ))}
                     {!filteredRegistrations.length ? (
                       <div className="empty-state">No registrations yet.</div>
                     ) : null}
@@ -1271,7 +1567,11 @@ function selectResource(resource) {
                   <div className="admin-table">
                     {nodeLeads.map((item) => (
                       <div className="admin-table-row" key={item.id}>
-                        <div><strong>{item.name || item.answers?.name || 'Unnamed'}</strong><p>{item.email || item.answers?.email}</p></div>
+                        <div>
+                          <strong>{item.name || item.answers?.name || 'Unnamed'}</strong>
+                          <p>{item.email || item.answers?.email}</p>
+                          <AnswerDetails answers={item.answers} />
+                        </div>
                         <div>{item.reviewStatus}</div>
                         <select className="form-select" value={item.reviewStatus || 'pending'} onChange={(e) => patchStatus('nodeLeadApplications', item.id, e.target.value)}>
                           <option value="pending">pending</option>
@@ -1310,6 +1610,47 @@ function selectResource(resource) {
             </div>
           ) : null}
 
+          {/* HOSTS */}
+          {tab === 'hosts' ? (
+            <div className="admin-section">
+              <div className="dashboard-card">
+                <div className="admin-inline-actions">
+                  <h3>Host applications</h3>
+                  <div className="admin-inline-actions">
+                    <button type="button" className="btn-secondary" onClick={() => handleHostExport('csv')}>CSV</button>
+                    <button type="button" className="btn-secondary" onClick={() => handleHostExport('xlsx')}>XLSX</button>
+                    <button type="button" className="btn-secondary" onClick={() => handleHostExport('json')}>JSON</button>
+                  </div>
+                </div>
+                <div className="admin-table">
+                  {hostApplications.map((item) => (
+                    <div className="admin-table-row" key={item.id}>
+                      <div>
+                        <strong>{item.name || item.answers?.name || 'Unnamed'}</strong>
+                        <p>{item.email || item.answers?.email}</p>
+                        <p>{[item.countryCode || item.answers?.countryCode, item.phone || item.answers?.phone].filter(Boolean).join(' ')}</p>
+                        <AnswerDetails answers={item.answers} />
+                      </div>
+                      <div>
+                        <strong>{item.subject || item.answers?.subject || 'Host request'}</strong>
+                        <p>{item.venue || item.answers?.venue || 'Venue not provided'}</p>
+                        <p>Capacity {item.venueCapacity ?? item.answers?.venueCapacity ?? 'n/a'} - Audience {item.estimatedAudience ?? item.answers?.estimatedAudience ?? 'n/a'}</p>
+                        <p>{formatAdminDate(item.createdAt)}</p>
+                      </div>
+                      <select className="form-select" value={item.reviewStatus || 'pending'} onChange={(e) => patchStatus('hostApplications', item.id, e.target.value)}>
+                        <option value="pending">pending</option>
+                        <option value="shortlisted">shortlisted</option>
+                        <option value="accepted">accepted</option>
+                        <option value="rejected">rejected</option>
+                      </select>
+                    </div>
+                  ))}
+                  {!hostApplications.length ? <div className="empty-state">No host applications yet.</div> : null}
+                </div>
+              </div>
+            </div>
+          ) : null}
+
           {/* UPDATES */}
           {tab === 'updates' ? (
             <div className="admin-section">
@@ -1324,11 +1665,19 @@ function selectResource(resource) {
 
               {updatesSubTab === 'posts' ? (
                 <>
-                  <form className="form-card" onSubmit={handleSaveUpdate}>
+                  <form className="form-card admin-edit-form" onSubmit={handleSaveUpdate} ref={updateFormRef}>
                     <h3>{updateDraft.id ? 'Edit post' : 'Create post'}</h3>
-                    <div className="form-field"><label className="form-label">Title</label><input className="form-input" value={updateDraft.title} onChange={(e) => setUpdateDraft((c) => ({ ...c, title: e.target.value }))} /></div>
-                    <div className="form-field"><label className="form-label">Slug</label><input className="form-input" value={updateDraft.slug} onChange={(e) => setUpdateDraft((c) => ({ ...c, slug: e.target.value }))} /></div>
-                    <div className="form-field"><label className="form-label">Excerpt</label><textarea className="form-textarea" value={updateDraft.excerpt} onChange={(e) => setUpdateDraft((c) => ({ ...c, excerpt: e.target.value }))} /></div>
+                    <div className="form-field"><label className="form-label">Title</label><input className="form-input" ref={updateTitleRef} value={updateDraft.title} onChange={(e) => setUpdateDraft((c) => ({ ...c, title: e.target.value }))} /></div>
+                    <div className="form-field">
+                      <label className="form-label">Slug <span className="hint">URL name, no spaces</span></label>
+                      <input className="form-input" placeholder="url-friendly-name-no-spaces" value={updateDraft.slug} onChange={(e) => setUpdateDraft((c) => ({ ...c, slug: normalizeSlug(e.target.value) }))} />
+                      <p className="field-help">Slug is the URL name. Use lowercase words separated by hyphens, no spaces.</p>
+                    </div>
+                    <div className="form-field">
+                      <label className="form-label">Excerpt <span className="hint">TL;DR</span></label>
+                      <textarea className="form-textarea" placeholder="Short TL;DR shown on update cards and previews." value={updateDraft.excerpt} onChange={(e) => setUpdateDraft((c) => ({ ...c, excerpt: e.target.value }))} />
+                      <p className="field-help">Excerpt is the short summary users see before opening the full content.</p>
+                    </div>
                     <div className="form-field">
                       <label className="form-label">Body</label>
                       <RichTextEditor value={updateDraft.bodyHtml} onChange={(value) => setUpdateDraft((c) => ({ ...c, bodyHtml: value }))} />
@@ -1397,7 +1746,7 @@ function selectResource(resource) {
                             <button
                               type="button"
                               className="btn-secondary btn-small"
-                              onClick={() => setUpdateDraft({ ...post, scope: post.scope || 'general', eventId: post.eventId || '', attachments: post.attachments || [], bodyHtml: post.bodyHtml || (post.body || []).map((paragraph) => `<p>${paragraph}</p>`).join('') })}
+                              onClick={() => selectUpdate(post)}
                             >
                               Edit
                             </button>
@@ -1459,16 +1808,17 @@ function selectResource(resource) {
           {/* RESOURCES */}
           {tab === 'resources' ? (
             <div className="admin-section">
-              <form className="form-card" onSubmit={handleSaveResource}>
+              <form className="form-card admin-edit-form" onSubmit={handleSaveResource} ref={resourceFormRef}>
                 <h3>{resourceDraft.id ? 'Edit resource' : 'Create resource'}</h3>
                 <div className="form-field field-inline-2">
                   <div className="form-field">
                     <label className="form-label">Title</label>
-                    <input className="form-input" value={resourceDraft.title} onChange={(e) => setResourceDraft((current) => ({ ...current, title: e.target.value }))} />
+                    <input className="form-input" ref={resourceTitleRef} value={resourceDraft.title} onChange={(e) => setResourceDraft((current) => ({ ...current, title: e.target.value }))} />
                   </div>
                   <div className="form-field">
                     <label className="form-label">Slug</label>
-                    <input className="form-input" value={resourceDraft.slug} onChange={(e) => setResourceDraft((current) => ({ ...current, slug: e.target.value }))} />
+                    <input className="form-input" placeholder="url-friendly-name-no-spaces" value={resourceDraft.slug} onChange={(e) => setResourceDraft((current) => ({ ...current, slug: normalizeSlug(e.target.value) }))} />
+                    <p className="field-help">Slug is the URL name. Use lowercase words separated by hyphens, no spaces.</p>
                   </div>
                 </div>
                 <div className="form-field">
@@ -1479,8 +1829,9 @@ function selectResource(resource) {
                   </select>
                 </div>
                 <div className="form-field">
-                  <label className="form-label">Card description</label>
-                  <textarea className="form-textarea" value={resourceDraft.excerpt} onChange={(e) => setResourceDraft((current) => ({ ...current, excerpt: e.target.value }))} />
+                  <label className="form-label">Card description <span className="hint">TL;DR</span></label>
+                  <textarea className="form-textarea" placeholder="Short TL;DR shown on resource cards and previews." value={resourceDraft.excerpt} onChange={(e) => setResourceDraft((current) => ({ ...current, excerpt: e.target.value }))} />
+                  <p className="field-help">Excerpt is the short summary users see before opening the full content.</p>
                 </div>
                 <div className="form-field">
                   <label className="form-label">Resource detail body</label>
@@ -1749,6 +2100,35 @@ function selectResource(resource) {
                       Resubscribe
                     </button>
                   )}
+                </div>
+              </div>
+            </div>
+          ) : null}
+
+          {/* ERRORS */}
+          {tab === 'errors' ? (
+            <div className="admin-section">
+              <div className="dashboard-card">
+                <div className="admin-inline-actions">
+                  <div>
+                    <h3>Backend error logs</h3>
+                    <p className="page-sub" style={{ marginTop: 8 }}>Recent server-side errors logged to Postgres. Public users only see safe messages.</p>
+                  </div>
+                  <span className="event-tag">{errorLogs.length} recent</span>
+                </div>
+                <div className="admin-list">
+                  {errorLogs.map((log) => (
+                    <details className="admin-answer-details" key={log.id}>
+                      <summary>{log.statusCode || 500} - {log.safeMessage || 'Error'} - {formatAdminDate(log.createdAt)}</summary>
+                      <dl>
+                        <div><dt>Route</dt><dd>{log.method} {log.route}</dd></div>
+                        <div><dt>User</dt><dd>{log.userId || 'guest/unknown'}</dd></div>
+                        <div><dt>Internal</dt><dd>{log.internalMessage || 'Not recorded'}</dd></div>
+                        <div><dt>Stack</dt><dd>{log.stack || 'Not recorded'}</dd></div>
+                      </dl>
+                    </details>
+                  ))}
+                  {!errorLogs.length ? <div className="empty-state">No backend errors logged yet.</div> : null}
                 </div>
               </div>
             </div>

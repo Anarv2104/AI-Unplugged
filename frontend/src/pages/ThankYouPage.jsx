@@ -25,7 +25,10 @@ export default function ThankYouPage() {
   } else if (formType === 'attend') {
     primaryCta = { to: '/dashboard', label: 'Go to dashboard' };
     secondaryCta = { to: '/events', label: 'See all events' };
-    if (entryType === 'open') {
+    if (entryType === 'waitlisted') {
+      label = 'Waitlist request received';
+      body = 'The room is currently full, but your request is on the waitlist. We’ll let you know if we can arrange a few more seats.';
+    } else if (entryType === 'open' || entryType === 'invite-only') {
       label = 'Event registration confirmed';
       body = "Your seat is confirmed. Check your email for the registration details and keep an eye on the dashboard for anything new tied to this room.";
     } else if (entryType === 'curated') {

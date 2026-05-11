@@ -16,6 +16,14 @@ export default function NodeLeadPage() {
   const [submitting, setSubmitting] = useState(false);
   const [showSuccess, setShowSuccess] = useState(false);
 
+  function getSubmitErrorMessage(error) {
+    if (error?.details?.errors) return 'Some fields need attention before we can submit this application.';
+    if (String(error?.message || '').includes('Form schema not found')) {
+      return 'This form was updated while you were filling it out. Refresh the page and try again.';
+    }
+    return error?.message || 'Could not submit. Please try again.';
+  }
+
   useEffect(() => {
     getDefaultSchema('nodeLead').then((nextSchema) => {
       setSchema(nextSchema);
@@ -53,7 +61,7 @@ export default function NodeLeadPage() {
     } catch (error) {
       const fieldErrors = error?.details?.errors;
       if (fieldErrors) setErrors(fieldErrors);
-      setFormMessage(error?.message || 'Could not submit. Please try again.');
+      setFormMessage(getSubmitErrorMessage(error));
       setSubmitting(false);
     }
   }
@@ -128,7 +136,7 @@ export default function NodeLeadPage() {
             </button>
             <span className="submit-note">We review Node Lead applications manually.</span>
           </div>
-          {formMessage ? <div className="form-error" style={{ display: 'block', marginTop: 12 }}>{formMessage}</div> : null}
+          {formMessage ? <div className="form-status-message" role="alert">{formMessage}</div> : null}
         </form>
       </div>
 

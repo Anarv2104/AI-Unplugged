@@ -13,6 +13,7 @@ export default function ApplyPage() {
   const { user, profile, isAuthenticated, loading } = useAuth();
   const [searchParams] = useSearchParams();
   const eventId = searchParams.get('event');
+  const inviteToken = searchParams.get('invite') || '';
 
   const [events, setEvents] = useState([]);
   const [schema, setSchema] = useState(null);
@@ -84,9 +85,10 @@ export default function ApplyPage() {
     try {
       const result = await submitEventRegistration({
         eventId: selectedEventId,
-        answers: values
+        answers: values,
+        inviteToken
       });
-      const nextEntryType = result?.entryType || 'application';
+      const nextEntryType = result?.reviewStatus === 'waitlisted' ? 'waitlisted' : (result?.entryType || 'application');
       setSubmissionEntryType(nextEntryType);
       setShowSuccess(true);
       window.setTimeout(() => navigate(`/thank-you?form=attend&entry=${encodeURIComponent(nextEntryType)}`), REDIRECT_DELAY_MS);
@@ -145,6 +147,11 @@ export default function ApplyPage() {
           ) : null}
 
           <form className="form-card" onSubmit={handleSubmit} noValidate>
+            {selectedEvent?.entry === 'Invite Only' && !inviteToken ? (
+              <div className="form-status-message" role="alert">
+                This room requires a direct invite. Use the invite link from your email to register.
+              </div>
+            ) : null}
             {!eventId ? (
               <div className={`form-field${errors.event ? ' has-error' : ''}`}>
                 <label className="form-label" htmlFor="a-event">Which event?</label>
@@ -170,8 +177,8 @@ export default function ApplyPage() {
             ))}
 
             <div className="form-submit-row">
-              <button type="submit" className={`btn-primary${submitting ? ' is-disabled' : ''}`} disabled={submitting || !schema}>
-                {submitting ? 'Submitting...' : <>Submit Attendance Request <span className="btn-arrow">&rarr;</span></>}
+              <button type="submit" className={`btn-primary${submitting ? ' is-disabled' : ''}`} disabled={submitting || !schema || (selectedEvent?.entry === 'Invite Only' && !inviteToken)}>
+                {submitting ? 'Submitting...' : <>Submit<span className="btn-arrow">&rarr;</span></>}
               </button>
               <span className="submit-note">
                 {selectedEvent?.entry === 'Open'

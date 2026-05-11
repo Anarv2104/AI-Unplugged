@@ -48,6 +48,7 @@ const SERVER_VERSION = `local-${Math.floor(Date.now() / 1000)}`;
 const geocodeCache = new Map();
 const SKILL_MAX_FILE_SIZE = 2 * 1024 * 1024;
 const ATTACHMENT_MAX_FILE_SIZE = 10 * 1024 * 1024;
+const FORM_FIELD_TYPES = new Set(['text', 'textarea', 'email', 'phone', 'number', 'select', 'radio', 'checkbox', 'url', 'helper']);
 
 const BUILT_IN_DEFAULT_EVENT_SCHEMA = {
   id: 'default-event-form',
@@ -69,15 +70,22 @@ const BUILT_IN_DEFAULT_EVENT_SCHEMA = {
 const BUILT_IN_DEFAULT_NODE_LEAD_SCHEMA = {
   id: 'default-node-lead-form',
   kind: 'nodeLead',
-  title: 'Node Lead Application',
+  title: 'Default Node Lead Application',
   isDefault: true,
   publishState: 'published',
   fields: [
     { id: 'name', type: 'text', label: 'Full name', required: true },
     { id: 'email', type: 'email', label: 'Email', required: true },
-    { id: 'phone', type: 'text', label: 'Phone', required: false },
+    { id: 'phone', type: 'phone', label: 'Phone', required: false, helperText: 'Optional' },
+    { id: 'linkedin', type: 'url', label: 'LinkedIn', required: true, placeholder: 'https://linkedin.com/in/...' },
+    { id: 'college', type: 'text', label: 'College / University', required: true },
+    { id: 'year', type: 'select', label: 'Year of study', required: true, options: ['1st year', '2nd year', '3rd year', '4th year', 'Postgrad', 'Recent grad', 'Other'] },
     { id: 'city', type: 'text', label: 'City', required: true },
-    { id: 'whyNodeLead', type: 'textarea', label: 'Why do you want to be a Node Lead?', required: true, minLength: 30 }
+    { id: 'hasOrganized', type: 'radio', label: 'Have you organized events before?', required: true, options: ['Yes', 'No'] },
+    { id: 'organizedDetail', type: 'textarea', label: 'Describe what you organized', required: true, minLength: 15, showWhen: { field: 'hasOrganized', equals: 'Yes' }, placeholder: 'Event name, scale, what you actually did.' },
+    { id: 'whyNodeLead', type: 'textarea', label: 'Why do you want to run AI Unplugged at your campus?', required: true, minLength: 40, placeholder: 'Specific beats generic. What is missing at your campus? What will you build?' },
+    { id: 'firstEventEstimate', type: 'number', label: 'How many builders can you bring to the first event?', required: true },
+    { id: 'currentlyBuilding', type: 'textarea', label: "Anything you're currently building?", required: false, helperText: 'Optional', placeholder: 'Projects, side products, papers, research - anything counts.' }
   ]
 };
 
@@ -215,16 +223,40 @@ function jsonReplacer(_key, value) {
   return value;
 }
 
-function sendError(res, error) {
-  const statusCode = error instanceof HttpError ? error.statusCode : 500;
-  if (statusCode >= 500) {
-    console.error('[server error]', error);
-    sendJson(res, 500, { ok: false, error: 'Internal server error.' });
-    return;
+function getSafeErrorMessage(error, statusCode) {
+  if (error instanceof HttpError && statusCode < 500) return error.message;
+  if (statusCode === 401) return 'Please log in and try again.';
+  if (statusCode === 403) return 'You do not have access to this action.';
+  if (statusCode === 404) return 'We could not find what you were looking for.';
+  return 'Something went wrong on our side. Please try again in a moment.';
+}
+
+async function logAppError(req, error, statusCode, safeMessage) {
+  try {
+    const auth = await getAuthContext(req, { optional: true }).catch(() => null);
+    await prisma.appErrorLog.create({
+      data: {
+        route: req?.url || '',
+        method: req?.method || '',
+        statusCode,
+        safeMessage,
+        internalMessage: error instanceof Error ? error.message : String(error || ''),
+        stack: error instanceof Error ? String(error.stack || '').slice(0, 6000) : '',
+        userId: auth?.uid || null
+      }
+    });
+  } catch (logError) {
+    console.error('[error log failed]', logError.message);
   }
-  const message = error instanceof Error ? error.message : 'Unexpected server error.';
+}
+
+async function sendError(req, res, error) {
+  const statusCode = error instanceof HttpError ? error.statusCode : 500;
+  const safeMessage = getSafeErrorMessage(error, statusCode);
+  if (statusCode >= 500) console.error('[server error]', error);
+  if (statusCode >= 500 || !(error instanceof HttpError)) await logAppError(req, error, statusCode, safeMessage);
   const details = error instanceof HttpError ? error.details : null;
-  sendJson(res, statusCode, { ok: false, error: message, details });
+  sendJson(res, statusCode, { ok: false, error: safeMessage, details });
 }
 
 function sendFile(res, filePath, extraHeaders = {}) {
@@ -353,6 +385,51 @@ function normalizeEntryType(entry) {
   return 'application';
 }
 
+function publicBaseUrl(req) {
+  const configured = String(process.env.PUBLIC_BASE_URL || '').trim().replace(/\/$/, '');
+  if (configured) return configured;
+  const host = req?.headers?.host || `localhost:${PORT}`;
+  return `http://${host}`;
+}
+
+function makeInviteToken() {
+  return crypto.randomBytes(24).toString('hex');
+}
+
+function normalizeEmail(value) {
+  return String(value || '').trim().toLowerCase();
+}
+
+function eventCapacity(event) {
+  const capacity = Number(event?.extra?.capacity ?? event?.capacity ?? 0);
+  return Number.isFinite(capacity) && capacity > 0 ? capacity : 0;
+}
+
+async function countActiveRegistrations(eventId) {
+  return prisma.eventRegistration.count({
+    where: {
+      eventId,
+      reviewStatus: { not: 'rejected' }
+    }
+  });
+}
+
+async function sendInviteEmail(req, invite, event) {
+  if (!invite.email) return;
+  const link = `${publicBaseUrl(req)}/attend?event=${encodeURIComponent(invite.eventId)}&invite=${encodeURIComponent(invite.token)}`;
+  const title = String(event?.title || 'AI Unplugged event').trim();
+  const name = String(invite.name || invite.email || 'Builder').trim();
+  const subject = `You're invited: ${title}`;
+  const html = `
+    <p>Hi ${escapeHtml(name)},</p>
+    <p>You have been invited to register for <strong>${escapeHtml(title)}</strong>.</p>
+    <p><a href="${escapeHtml(link)}">Open your invite</a></p>
+    <p>This invite is tied to your email address.</p>
+  `.trim();
+  const text = `Hi ${name},\n\nYou have been invited to register for ${title}.\n\nOpen your invite: ${link}\n\nThis invite is tied to your email address.`;
+  await mailProvider.sendTransactionalEmail({ to: invite.email, subject, html, text });
+}
+
 function getServerCapabilities() {
   return {
     skilldbUploadApi: true,
@@ -445,10 +522,82 @@ function validateAnswers(schema, answers) {
   return { normalized, errors };
 }
 
-function flattenRow(row) {
+function normalizeFormFields(fields) {
+  if (!Array.isArray(fields) || !fields.length) {
+    throw new HttpError(400, 'Form must include at least one field.');
+  }
+
+  const seenIds = new Set();
+  return fields.map((field, index) => {
+    const id = String(field?.id || '').trim();
+    const label = String(field?.label || '').trim();
+    const type = String(field?.type || 'text').trim();
+
+    if (!id) throw new HttpError(400, `Field ${index + 1} is missing an id.`);
+    if (seenIds.has(id)) throw new HttpError(400, `Field id "${id}" is duplicated.`);
+    if (!label) throw new HttpError(400, `Field ${index + 1} is missing a label.`);
+    if (!FORM_FIELD_TYPES.has(type)) throw new HttpError(400, `Field "${label}" has an unsupported type.`);
+    seenIds.add(id);
+
+    const normalized = {
+      id,
+      type,
+      label,
+      required: Boolean(field.required)
+    };
+    const placeholder = String(field.placeholder || '').trim();
+    const helperText = String(field.helperText || '').trim();
+    if (placeholder) normalized.placeholder = placeholder;
+    if (helperText) normalized.helperText = helperText;
+    if (field.minLength != null && field.minLength !== '') {
+      const minLength = Number(field.minLength);
+      if (Number.isFinite(minLength) && minLength > 0) normalized.minLength = minLength;
+    }
+    if (field.showWhen && typeof field.showWhen === 'object') {
+      normalized.showWhen = {
+        field: String(field.showWhen.field || '').trim(),
+        equals: String(field.showWhen.equals || '').trim()
+      };
+    }
+    if (type === 'select' || type === 'radio') {
+      const options = Array.isArray(field.options)
+        ? field.options.map((item) => String(item || '').trim()).filter(Boolean)
+        : [];
+      if (!options.length) throw new HttpError(400, `Field "${label}" needs at least one option.`);
+      normalized.options = options;
+    }
+    return normalized;
+  });
+}
+
+function buildFormSchemaSnapshot(schema) {
+  const fields = Array.isArray(schema?.fields) ? schema.fields : [];
+  return {
+    id: String(schema?.id || ''),
+    kind: String(schema?.kind || ''),
+    title: String(schema?.title || ''),
+    isDefault: Boolean(schema?.isDefault),
+    publishState: String(schema?.publishState || 'published'),
+    fields: fields.map((field) => {
+      const snapshot = {
+        id: String(field?.id || ''),
+        type: String(field?.type || 'text'),
+        label: String(field?.label || ''),
+        required: Boolean(field?.required)
+      };
+      for (const key of ['placeholder', 'helperText', 'minLength', 'options', 'showWhen']) {
+        if (field?.[key] !== undefined) snapshot[key] = field[key];
+      }
+      return snapshot;
+    })
+  };
+}
+
+function flattenRow(row, { includeFormSchema = true } = {}) {
   const answers = (row && typeof row.answers === 'object' && row.answers) || {};
   const clean = { ...row };
   delete clean.answers;
+  if (!includeFormSchema) delete clean.formSchema;
 
   for (const [key, value] of Object.entries(clean)) {
     clean[key] = serializeValue(value);
@@ -689,6 +838,8 @@ async function handleProfileNewsletter(req, res) {
 async function getSchemaForKind({ kind, schemaId }) {
   if (schemaId) {
     const schema = await prisma.eventForm.findUnique({ where: { id: schemaId } });
+    if (!schema && kind === 'event' && schemaId === BUILT_IN_DEFAULT_EVENT_SCHEMA.id) return BUILT_IN_DEFAULT_EVENT_SCHEMA;
+    if (!schema && kind === 'nodeLead' && schemaId === BUILT_IN_DEFAULT_NODE_LEAD_SCHEMA.id) return BUILT_IN_DEFAULT_NODE_LEAD_SCHEMA;
     if (!schema) throw new HttpError(404, 'Form schema not found.');
     return schema;
   }
@@ -978,6 +1129,13 @@ function parseDateOnly(value) {
   return Number.isNaN(fallback.getTime()) ? null : fallback;
 }
 
+function formatDateForDisplay(value) {
+  const str = String(value || '').trim();
+  const match = str.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (!match) return '';
+  return `${match[3]}/${match[2]}/${match[1]}`;
+}
+
 const EVENT_EXTRA_FIELDS = [
   'format',
   'dateDisplay',
@@ -1020,6 +1178,7 @@ function buildEventData(payload = {}) {
     ? payload.extra
     : {};
   const extra = { ...existingExtra, ...pickEventExtra(payload) };
+  extra.dateDisplay = payload.date ? formatDateForDisplay(payload.date) : '';
   return {
     title: payload.title || '',
     publishState: payload.publishState || 'draft',
@@ -1134,7 +1293,7 @@ function importContentText(upload) {
 async function handleEventRegistration(req, res) {
   const payload = await readJson(req);
   const authContext = await getAuthContext(req);
-  const { eventId, answers } = payload;
+  const { eventId, answers, inviteToken } = payload;
 
   if (!eventId) throw new HttpError(400, 'Event is required.');
 
@@ -1144,18 +1303,41 @@ async function handleEventRegistration(req, res) {
     throw new HttpError(412, 'Event is not open for registration.');
   }
   const entryType = normalizeEntryType(event.entry);
-  if (entryType === 'invite-only') {
-    throw new HttpError(412, 'This event is invite only. Registration is not open through the public attend form.');
-  }
-
   const schema = await getSchemaForKind({ kind: 'event', schemaId: event.formId || null });
   const { normalized, errors } = validateAnswers(schema, answers || {});
   if (Object.keys(errors).length) {
     throw new HttpError(400, 'Validation failed.', { errors });
   }
 
-  const email = String(normalized.email || payload.email || '').trim();
+  const email = normalizeEmail(normalized.email || payload.email || authContext.token.email || '');
+  let invite = null;
+  if (entryType === 'invite-only') {
+    const token = String(inviteToken || '').trim();
+    if (!token) {
+      throw new HttpError(412, 'This event requires a direct invite. Use the invite link from your email to register.');
+    }
+    invite = await prisma.eventInvite.findUnique({ where: { token } });
+    if (!invite || invite.eventId !== eventId || invite.status === 'revoked') {
+      throw new HttpError(412, 'This invite link is not valid anymore. Contact the AI Unplugged team if you need help.');
+    }
+    if (invite.email && email && normalizeEmail(invite.email) !== email) {
+      throw new HttpError(412, 'This invite is tied to a different email address. Use the invited email to register.');
+    }
+  }
+
   const registrationId = makeRegistrationId();
+  const capacity = eventCapacity(event);
+  const activeCount = await countActiveRegistrations(eventId);
+  const capacityExceeded = capacity > 0 && activeCount >= capacity;
+  const reviewStatus = capacityExceeded
+    ? 'waitlisted'
+    : (entryType === 'open' || entryType === 'invite-only' ? 'accepted' : 'pending');
+  const waitlistMessage = 'The room is currently full, but your request is on the waitlist. We’ll let you know if we can arrange a few more seats.';
+  const statusMessage = reviewStatus === 'waitlisted'
+    ? waitlistMessage
+    : reviewStatus === 'accepted'
+      ? 'Your seat is confirmed. Check your email for the registration details.'
+      : 'Your request has been received. We will review it and email you with the next update.';
 
   await prisma.user.upsert({
     where: { uid: authContext.uid },
@@ -1180,9 +1362,12 @@ async function handleEventRegistration(req, res) {
       entryType,
       formId: schema.id,
       formTitle: schema.title,
+      formSchema: buildFormSchemaSnapshot(schema),
       answers: normalized,
-      reviewStatus: entryType === 'open' ? 'accepted' : 'pending',
-      source: 'member',
+      reviewStatus,
+      waitlistReason: capacityExceeded ? 'capacity_exceeded' : null,
+      inviteId: invite?.id || null,
+      source: invite ? 'invite' : 'member',
       userId: authContext.uid,
       name: normalized.name || payload.name || '',
       email,
@@ -1190,6 +1375,16 @@ async function handleEventRegistration(req, res) {
       subscribedToNewsletter: true
     }
   });
+
+  if (invite) {
+    await prisma.eventInvite.update({
+      where: { id: invite.id },
+      data: {
+        status: reviewStatus === 'waitlisted' ? 'waitlisted' : 'accepted',
+        acceptedAt: reviewStatus === 'waitlisted' ? null : new Date()
+      }
+    });
+  }
 
   if (email) {
     const subscriberId = slugify(email);
@@ -1212,21 +1407,30 @@ async function handleEventRegistration(req, res) {
       const textLocationBlock = displayAddress
         ? `\nLocation: ${displayAddress}${mapLink ? `\nDirections: ${mapLink}` : ''}`
         : '';
-      const isOpen = entryType === 'open';
-      const subject = isOpen ? `Registration confirmed: ${event.title}` : `Registration received: ${event.title}`;
-      const html = isOpen
+      const isConfirmed = reviewStatus === 'accepted';
+      const isWaitlisted = reviewStatus === 'waitlisted';
+      const subject = isConfirmed
+        ? `Registration confirmed: ${event.title}`
+        : isWaitlisted
+          ? `Waitlist request received: ${event.title}`
+          : `Registration received: ${event.title}`;
+      const html = isConfirmed
         ? `<p>Your registration for <strong>${safeTitle}</strong> is confirmed.</p><p>Your registration ID is <strong>${safeId}</strong>.</p>${htmlLocationBlock}`
-        : `<p>Your registration for <strong>${safeTitle}</strong> has been received.</p><p>Your registration ID is <strong>${safeId}</strong>.</p><p>We will review your request and email you with the next update.</p>${htmlLocationBlock}`;
-      const text = isOpen
+        : isWaitlisted
+          ? `<p>Your request for <strong>${safeTitle}</strong> is on the waitlist.</p><p>Your registration ID is <strong>${safeId}</strong>.</p><p>${escapeHtml(waitlistMessage)}</p>${htmlLocationBlock}`
+          : `<p>Your registration for <strong>${safeTitle}</strong> has been received.</p><p>Your registration ID is <strong>${safeId}</strong>.</p><p>We will review your request and email you with the next update.</p>${htmlLocationBlock}`;
+      const text = isConfirmed
         ? `Your registration for ${event.title} is confirmed. Registration ID: ${registrationId}${textLocationBlock}`
-        : `Your registration for ${event.title} has been received. Registration ID: ${registrationId}\nWe will review your request and email you with the next update.${textLocationBlock}`;
+        : isWaitlisted
+          ? `Your request for ${event.title} is on the waitlist. Registration ID: ${registrationId}\n${waitlistMessage}${textLocationBlock}`
+          : `Your registration for ${event.title} has been received. Registration ID: ${registrationId}\nWe will review your request and email you with the next update.${textLocationBlock}`;
       await mailProvider.sendTransactionalEmail({ to: email, subject, html, text });
     } catch (error) {
       console.error('Registration email failed:', error.message);
     }
   }
 
-  sendJson(res, 200, { ok: true, id: created.id, registrationId, entryType, reviewStatus: created.reviewStatus });
+  sendJson(res, 200, { ok: true, id: created.id, registrationId, entryType, reviewStatus: created.reviewStatus, message: statusMessage });
 }
 
 async function handleNodeLeadApplication(req, res) {
@@ -1243,6 +1447,7 @@ async function handleNodeLeadApplication(req, res) {
     data: {
       formId: schema.id,
       formTitle: schema.title,
+      formSchema: buildFormSchemaSnapshot(schema),
       answers: normalized,
       email: normalized.email || '',
       name: normalized.name || '',
@@ -1389,15 +1594,18 @@ async function handleExport(req, res) {
   if (!XLSX) throw new HttpError(503, 'Spreadsheet export support is unavailable. Install xlsx in the backend runtime.');
 
   const payload = await readJson(req);
-  const dataset = payload.dataset === 'nodeLeadApplications' ? 'nodeLeadApplications' : 'eventRegistrations';
+  const allowedDatasets = new Set(['eventRegistrations', 'nodeLeadApplications', 'hostApplications']);
+  const dataset = allowedDatasets.has(payload.dataset) ? payload.dataset : 'eventRegistrations';
   const format = payload.format || 'csv';
 
   let rows;
   if (dataset === 'eventRegistrations') {
     const where = payload.eventId ? { eventId: payload.eventId } : {};
     rows = await prisma.eventRegistration.findMany({ where, orderBy: { createdAt: 'desc' } });
-  } else {
+  } else if (dataset === 'nodeLeadApplications') {
     rows = await prisma.nodeLeadApplication.findMany({ orderBy: { createdAt: 'desc' } });
+  } else {
+    rows = await prisma.hostApplication.findMany({ orderBy: { createdAt: 'desc' } });
   }
 
   if (format === 'json') {
@@ -1405,12 +1613,12 @@ async function handleExport(req, res) {
       ok: true,
       filename: `${dataset}.json`,
       mimeType: 'application/json',
-      base64: Buffer.from(JSON.stringify(rows.map(flattenRow), null, 2)).toString('base64')
+      base64: Buffer.from(JSON.stringify(rows.map((row) => flattenRow(row, { includeFormSchema: true })), null, 2)).toString('base64')
     });
     return;
   }
 
-  const worksheet = XLSX.utils.json_to_sheet(rows.map(flattenRow));
+  const worksheet = XLSX.utils.json_to_sheet(rows.map((row) => flattenRow(row, { includeFormSchema: false })));
   const workbook = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(workbook, worksheet, 'Export');
 
@@ -1649,7 +1857,7 @@ async function handleSaveUpdate(req, res) {
 
   const data = {
     title: payload.title || '',
-    slug: payload.slug || slugify(payload.title || crypto.randomUUID()),
+    slug: slugify(payload.slug || payload.title || crypto.randomUUID()),
     excerpt: payload.excerpt || '',
     body: Array.isArray(payload.body) ? payload.body : htmlToParagraphs(payload.bodyHtml || ''),
     bodyHtml: payload.bodyHtml || '',
@@ -1821,7 +2029,7 @@ async function handleSaveResource(req, res) {
   const payload = await readJson(req);
   const { id, createdAt, updatedAt, ...rest } = payload;
 
-  const slug = rest.slug || slugify(rest.title || id || crypto.randomUUID());
+  const slug = slugify(rest.slug || rest.title || id || crypto.randomUUID());
   const data = {
     title: rest.title || 'Untitled Resource',
     slug,
@@ -1875,7 +2083,7 @@ async function handleSaveEventForm(req, res) {
     kind: rest.kind || 'event',
     isDefault: Boolean(rest.isDefault),
     title: rest.title || 'Untitled form',
-    fields: rest.fields || []
+    fields: normalizeFormFields(rest.fields || [])
   };
   let saved;
   if (id) {
@@ -1919,10 +2127,114 @@ async function handleListEventRegistrations(req, res, url) {
   sendJson(res, 200, { ok: true, registrations });
 }
 
+function parseCsvRows(text) {
+  const lines = String(text || '').split(/\r?\n/).filter((line) => line.trim());
+  if (!lines.length) return [];
+  const headers = lines[0].split(',').map((item) => item.trim().toLowerCase());
+  return lines.slice(1).map((line) => {
+    const values = line.split(',').map((item) => item.trim().replace(/^"|"$/g, ''));
+    return Object.fromEntries(headers.map((key, index) => [key, values[index] || '']));
+  });
+}
+
+function parseInviteUpload(upload) {
+  if (!upload?.base64) return [];
+  const name = String(upload.name || '').toLowerCase();
+  const buffer = Buffer.from(upload.base64, 'base64');
+  if (name.endsWith('.xlsx') || name.endsWith('.xls')) {
+    if (!XLSX) throw new HttpError(503, 'Spreadsheet parsing support is unavailable in the backend runtime.');
+    const workbook = XLSX.read(buffer, { type: 'buffer' });
+    const sheetName = workbook.SheetNames[0];
+    return XLSX.utils.sheet_to_json(workbook.Sheets[sheetName] || {});
+  }
+  return parseCsvRows(buffer.toString('utf8'));
+}
+
+async function upsertEventInvite(eventId, row) {
+  const email = normalizeEmail(row.email || row.Email || row['email address'] || row['Email Address']);
+  if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return null;
+  const name = String(row.name || row.Name || row.fullName || row['Full name'] || '').trim();
+  return prisma.eventInvite.upsert({
+    where: { eventId_email: { eventId, email } },
+    update: { name: name || undefined, status: 'pending' },
+    create: { eventId, email, name: name || null, token: makeInviteToken(), status: 'pending' }
+  });
+}
+
+async function handleEventInvites(req, res, eventId, action = '') {
+  await requireAdminAuth(req);
+  const event = await prisma.event.findUnique({ where: { id: eventId } });
+  if (!event) throw new HttpError(404, 'Event not found.');
+
+  if (req.method === 'GET') {
+    const invites = await prisma.eventInvite.findMany({ where: { eventId }, orderBy: { invitedAt: 'desc' } });
+    sendJson(res, 200, { ok: true, invites });
+    return;
+  }
+
+  const payload = await readJson(req);
+  if (req.method === 'POST' && action === 'import') {
+    const rows = parseInviteUpload(payload.upload || {});
+    const invites = [];
+    for (const row of rows) {
+      const invite = await upsertEventInvite(eventId, row);
+      if (invite) invites.push(invite);
+    }
+    sendJson(res, 200, { ok: true, invites, imported: invites.length });
+    return;
+  }
+
+  if (req.method === 'POST' && action === 'send') {
+    const ids = Array.isArray(payload.ids) ? payload.ids : [];
+    const where = ids.length ? { eventId, id: { in: ids } } : { eventId, status: { not: 'revoked' } };
+    const invites = await prisma.eventInvite.findMany({ where });
+    let sent = 0;
+    for (const invite of invites) {
+      await sendInviteEmail(req, invite, event);
+      await prisma.eventInvite.update({ where: { id: invite.id }, data: { status: 'sent', invitedAt: new Date() } });
+      sent += 1;
+    }
+    sendJson(res, 200, { ok: true, sent });
+    return;
+  }
+
+  if (req.method === 'POST') {
+    const invite = await upsertEventInvite(eventId, payload || {});
+    if (!invite) throw new HttpError(400, 'A valid invite email is required.');
+    sendJson(res, 200, { ok: true, invite });
+    return;
+  }
+
+  if (req.method === 'DELETE') {
+    const inviteId = String(payload?.id || action || '').trim();
+    if (!inviteId) throw new HttpError(400, 'Invite id is required.');
+    await prisma.eventInvite.update({ where: { id: inviteId }, data: { status: 'revoked' } });
+    sendJson(res, 200, { ok: true, id: inviteId });
+    return;
+  }
+
+  throw new HttpError(405, 'Method not allowed.');
+}
+
 async function handleListNodeLeadApplications(req, res) {
   await requireAdminAuth(req);
   const applications = await prisma.nodeLeadApplication.findMany({ orderBy: { createdAt: 'desc' } });
   sendJson(res, 200, { ok: true, applications });
+}
+
+async function handleListHostApplications(req, res) {
+  await requireAdminAuth(req);
+  const applications = await prisma.hostApplication.findMany({ orderBy: { createdAt: 'desc' } });
+  sendJson(res, 200, { ok: true, applications });
+}
+
+async function handleListErrorLogs(req, res) {
+  await requireAdminAuth(req);
+  const logs = await prisma.appErrorLog.findMany({
+    orderBy: { createdAt: 'desc' },
+    take: 100
+  });
+  sendJson(res, 200, { ok: true, logs });
 }
 
 async function handleUpdateReviewStatus(req, res, dataset, recordId) {
@@ -1932,6 +2244,16 @@ async function handleUpdateReviewStatus(req, res, dataset, recordId) {
   if (dataset === 'eventRegistrations') {
     const existing = await prisma.eventRegistration.findUnique({ where: { id: recordId } });
     if (!existing) throw new HttpError(404, 'Registration not found.');
+    if (reviewStatus === 'accepted' && !payload?.overrideCapacity) {
+      const eventRow = await prisma.event.findUnique({ where: { id: existing.eventId } });
+      const capacity = eventCapacity(eventRow);
+      if (capacity > 0) {
+        const activeCount = await countActiveRegistrations(existing.eventId);
+        if (activeCount >= capacity && existing.reviewStatus !== 'accepted') {
+          throw new HttpError(409, 'This event is already at capacity. Increase capacity or use an override to accept this registration.');
+        }
+      }
+    }
     const updated = await prisma.eventRegistration.update({ where: { id: recordId }, data: { reviewStatus } });
     const shouldSendApprovalEmail = existing.reviewStatus !== 'accepted' && reviewStatus === 'accepted';
     if (shouldSendApprovalEmail && updated.email) {
@@ -2151,6 +2473,10 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'POST' && url.pathname === '/api/platform/events') {
       await handleSaveEvent(req, res); return;
     }
+    const eventInviteMatch = url.pathname.match(/^\/api\/platform\/events\/([^/]+)\/invites(?:\/([^/]+))?$/);
+    if (eventInviteMatch && ['GET', 'POST', 'DELETE'].includes(req.method)) {
+      await handleEventInvites(req, res, decodeURIComponent(eventInviteMatch[1]), eventInviteMatch[2] || ''); return;
+    }
     const eventMatch = url.pathname.match(/^\/api\/platform\/events\/([^/]+)$/);
     if (eventMatch && req.method === 'GET') {
       await handleGetEvent(req, res, decodeURIComponent(eventMatch[1])); return;
@@ -2204,6 +2530,12 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'GET' && url.pathname === '/api/platform/node-lead-applications') {
       await handleListNodeLeadApplications(req, res); return;
     }
+    if (req.method === 'GET' && url.pathname === '/api/platform/host-applications') {
+      await handleListHostApplications(req, res); return;
+    }
+    if (req.method === 'GET' && url.pathname === '/api/platform/error-logs') {
+      await handleListErrorLogs(req, res); return;
+    }
     const reviewMatch = url.pathname.match(/^\/api\/platform\/(eventRegistrations|nodeLeadApplications|hostApplications)\/([^/]+)\/review$/);
     if (reviewMatch && req.method === 'PUT') {
       await handleUpdateReviewStatus(req, res, reviewMatch[1], decodeURIComponent(reviewMatch[2])); return;
@@ -2242,7 +2574,7 @@ const server = http.createServer(async (req, res) => {
       await handleUploadFile(req, res, 'resource-image'); return;
     }
   } catch (error) {
-    sendError(res, error);
+    await sendError(req, res, error);
     return;
   }
 

@@ -34,7 +34,7 @@ export default function Nav() {
     <nav>
       <NavLink to={homeTarget} className="nav-logo">
         <span className="nav-logo-mark-frame" aria-hidden="true">
-          <img src="/AI%20UP.png" alt="" className="nav-logo-mark" width="38" height="39" />
+          <img src="/AIUNPLUGGED-transparent.svg" alt="" className="nav-logo-mark" width="38" height="39" />
         </span>
         <span className="nav-logo-wordmark">UNPLUGGED</span>
       </NavLink>

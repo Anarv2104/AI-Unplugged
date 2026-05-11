@@ -16,6 +16,7 @@ const mailProvider = createBrevoProvider({
   senderEmailSecret: BREVO_SENDER_EMAIL,
   senderNameSecret: BREVO_SENDER_NAME
 });
+const FORM_FIELD_TYPES = new Set(['text', 'textarea', 'email', 'phone', 'number', 'select', 'radio', 'checkbox', 'url', 'helper']);
 
 const BUILT_IN_DEFAULT_EVENT_SCHEMA = {
   id: 'default-event-form',
@@ -31,6 +32,28 @@ const BUILT_IN_DEFAULT_EVENT_SCHEMA = {
     { id: 'building', type: 'textarea', label: 'What are you building right now?', required: true, minLength: 20, helperText: '20-500 characters', placeholder: 'Short and honest. Rough projects count.' },
     { id: 'whyEvent', type: 'textarea', label: 'Why this event?', required: true, minLength: 15, placeholder: "Be specific. 'To network' is not a reason." },
     { id: 'social', type: 'url', label: 'LinkedIn / Twitter / Website', required: false, helperText: 'Optional' }
+  ]
+};
+
+const BUILT_IN_DEFAULT_NODE_LEAD_SCHEMA = {
+  id: 'default-node-lead-form',
+  kind: 'nodeLead',
+  title: 'Default Node Lead Application',
+  isDefault: true,
+  publishState: 'published',
+  fields: [
+    { id: 'name', type: 'text', label: 'Full name', required: true },
+    { id: 'email', type: 'email', label: 'Email', required: true },
+    { id: 'phone', type: 'phone', label: 'Phone', required: false, helperText: 'Optional' },
+    { id: 'linkedin', type: 'url', label: 'LinkedIn', required: true, placeholder: 'https://linkedin.com/in/...' },
+    { id: 'college', type: 'text', label: 'College / University', required: true },
+    { id: 'year', type: 'select', label: 'Year of study', required: true, options: ['1st year', '2nd year', '3rd year', '4th year', 'Postgrad', 'Recent grad', 'Other'] },
+    { id: 'city', type: 'text', label: 'City', required: true },
+    { id: 'hasOrganized', type: 'radio', label: 'Have you organized events before?', required: true, options: ['Yes', 'No'] },
+    { id: 'organizedDetail', type: 'textarea', label: 'Describe what you organized', required: true, minLength: 15, showWhen: { field: 'hasOrganized', equals: 'Yes' }, placeholder: 'Event name, scale, what you actually did.' },
+    { id: 'whyNodeLead', type: 'textarea', label: 'Why do you want to run AI Unplugged at your campus?', required: true, minLength: 40, placeholder: 'Specific beats generic. What is missing at your campus? What will you build?' },
+    { id: 'firstEventEstimate', type: 'number', label: 'How many builders can you bring to the first event?', required: true },
+    { id: 'currentlyBuilding', type: 'textarea', label: "Anything you're currently building?", required: false, helperText: 'Optional', placeholder: 'Projects, side products, papers, research - anything counts.' }
   ]
 };
 
@@ -154,9 +177,42 @@ function validateAnswers(schema, answers) {
   return { normalized, errors };
 }
 
+function buildFormSchemaSnapshot(schema) {
+  const fields = Array.isArray(schema?.fields) ? schema.fields : [];
+  return {
+    id: String(schema?.id || ''),
+    kind: String(schema?.kind || ''),
+    title: String(schema?.title || ''),
+    isDefault: Boolean(schema?.isDefault),
+    publishState: String(schema?.publishState || 'published'),
+    fields: fields.map((field) => {
+      const snapshot = {
+        id: String(field?.id || ''),
+        type: FORM_FIELD_TYPES.has(field?.type) ? field.type : 'text',
+        label: String(field?.label || ''),
+        required: Boolean(field?.required)
+      };
+      for (const key of ['placeholder', 'helperText', 'minLength', 'options', 'showWhen']) {
+        if (field?.[key] !== undefined) snapshot[key] = field[key];
+      }
+      return snapshot;
+    })
+  };
+}
+
+function flattenExportRow(row, { includeFormSchema = true } = {}) {
+  const answers = row.answers || {};
+  const clean = { ...row };
+  delete clean.answers;
+  if (!includeFormSchema) delete clean.formSchema;
+  return { ...clean, ...answers };
+}
+
 async function getSchemaForKind({ kind, schemaId }) {
   if (schemaId) {
     const doc = await db.collection('eventForms').doc(schemaId).get();
+    if (!doc.exists && kind === 'event' && schemaId === BUILT_IN_DEFAULT_EVENT_SCHEMA.id) return BUILT_IN_DEFAULT_EVENT_SCHEMA;
+    if (!doc.exists && kind === 'nodeLead' && schemaId === BUILT_IN_DEFAULT_NODE_LEAD_SCHEMA.id) return BUILT_IN_DEFAULT_NODE_LEAD_SCHEMA;
     if (!doc.exists) throw new HttpsError('not-found', 'Form schema not found.');
     return { id: doc.id, ...doc.data() };
   }
@@ -169,6 +225,7 @@ async function getSchemaForKind({ kind, schemaId }) {
 
   if (snap.empty) {
     if (kind === 'event') return BUILT_IN_DEFAULT_EVENT_SCHEMA;
+    if (kind === 'nodeLead') return BUILT_IN_DEFAULT_NODE_LEAD_SCHEMA;
     throw new HttpsError('failed-precondition', `Default ${kind} schema is missing.`);
   }
   const doc = snap.docs[0];
@@ -213,6 +270,7 @@ exports.submitEventRegistration = onCall(async (request) => {
     entryType,
     formId: schema.id,
     formTitle: schema.title,
+    formSchema: buildFormSchemaSnapshot(schema),
     answers: normalized,
     reviewStatus: entryType === 'open' ? 'accepted' : 'pending',
     source: request.auth ? 'member' : 'guest',
@@ -263,6 +321,7 @@ exports.submitNodeLeadApplication = onCall(async (request) => {
   const docRef = await db.collection('nodeLeadApplications').add({
     formId: schema.id,
     formTitle: schema.title,
+    formSchema: buildFormSchemaSnapshot(schema),
     answers: normalized,
     email: normalized.email || '',
     name: normalized.name || '',
@@ -324,16 +383,11 @@ exports.exportDataset = onCall(async (request) => {
       ok: true,
       filename: `${collectionName}.json`,
       mimeType: 'application/json',
-      base64: Buffer.from(JSON.stringify(rows, null, 2)).toString('base64')
+      base64: Buffer.from(JSON.stringify(rows.map((row) => flattenExportRow(row, { includeFormSchema: true })), null, 2)).toString('base64')
     };
   }
 
-  const flatRows = rows.map((row) => {
-    const answers = row.answers || {};
-    const clean = { ...row };
-    delete clean.answers;
-    return { ...clean, ...answers };
-  });
+  const flatRows = rows.map((row) => flattenExportRow(row, { includeFormSchema: false }));
 
   const worksheet = XLSX.utils.json_to_sheet(flatRows);
   const workbook = XLSX.utils.book_new();

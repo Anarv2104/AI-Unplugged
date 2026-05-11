@@ -321,10 +321,57 @@ export async function getNodeLeadApplications() {
   return result.applications || [];
 }
 
-export async function updateReviewStatus(collectionName, id, reviewStatus) {
+export async function getHostApplications() {
+  const result = await apiRequest('/api/platform/host-applications', { requireAuth: true });
+  return result.applications || [];
+}
+
+export async function getEventInvites(eventId) {
+  if (!eventId) return [];
+  const result = await apiRequest(`/api/platform/events/${encodeURIComponent(eventId)}/invites`, { requireAuth: true });
+  return result.invites || [];
+}
+
+export async function addEventInvite(eventId, payload) {
+  return apiRequest(`/api/platform/events/${encodeURIComponent(eventId)}/invites`, {
+    method: 'POST',
+    body: payload,
+    requireAuth: true
+  });
+}
+
+export async function importEventInvites(eventId, upload) {
+  return apiRequest(`/api/platform/events/${encodeURIComponent(eventId)}/invites/import`, {
+    method: 'POST',
+    body: { upload },
+    requireAuth: true
+  });
+}
+
+export async function sendEventInvites(eventId, ids = []) {
+  return apiRequest(`/api/platform/events/${encodeURIComponent(eventId)}/invites/send`, {
+    method: 'POST',
+    body: { ids },
+    requireAuth: true
+  });
+}
+
+export async function revokeEventInvite(eventId, inviteId) {
+  return apiRequest(`/api/platform/events/${encodeURIComponent(eventId)}/invites/${encodeURIComponent(inviteId)}`, {
+    method: 'DELETE',
+    requireAuth: true
+  });
+}
+
+export async function getErrorLogs() {
+  const result = await apiRequest('/api/platform/error-logs', { requireAuth: true });
+  return result.logs || [];
+}
+
+export async function updateReviewStatus(collectionName, id, reviewStatus, options = {}) {
   return apiRequest(`/api/platform/${collectionName}/${encodeURIComponent(id)}/review`, {
     method: 'PUT',
-    body: { reviewStatus },
+    body: { reviewStatus, ...options },
     requireAuth: true
   });
 }

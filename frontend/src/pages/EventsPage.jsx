@@ -35,7 +35,8 @@ export default function EventsPage() {
 
   const visibleEvents = useMemo(() => {
     const sorted = sortEventsByState(events);
-    return selectedType === 'all' ? sorted : sorted.filter((event) => event.type === selectedType);
+    const filtered = selectedType === 'all' ? sorted : sorted.filter((event) => event.type === selectedType);
+    return filtered.slice(0, 6);
   }, [events, selectedType]);
 
   function setFilter(filter) {

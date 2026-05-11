@@ -5,6 +5,7 @@ dist
 .env
 .env.*
 !.env.example
+!.env.production.example
 functions/node_modules
 functions/.env
 functions/.env.*

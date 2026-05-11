@@ -1214,6 +1214,13 @@ footer {
   margin-left: 6px;
 }
 
+.field-help {
+  margin-top: 7px;
+  color: var(--gray-3);
+  font-size: 0.76rem;
+  line-height: 1.45;
+}
+
 .form-input,
 .form-textarea,
 .form-select {
@@ -1324,6 +1331,89 @@ footer {
 .form-submit-row .submit-note {
   font-size: 0.78rem;
   color: var(--gray-3);
+}
+
+.form-status-message {
+  margin-top: 16px;
+  padding: 14px 16px;
+  border: 1px solid rgba(176,56,58,0.24);
+  border-radius: 12px;
+  background: rgba(176,56,58,0.07);
+  color: var(--error);
+  font-family: 'DM Sans', sans-serif;
+  font-size: 0.88rem;
+  font-weight: 600;
+  line-height: 1.5;
+}
+
+.admin-answer-details {
+  margin-top: 10px;
+  color: var(--gray-2);
+  font-size: 0.78rem;
+}
+
+.admin-answer-details summary {
+  cursor: pointer;
+  color: var(--black);
+  font-weight: 700;
+}
+
+.admin-answer-details dl {
+  margin-top: 8px;
+  display: grid;
+  gap: 8px;
+}
+
+.admin-answer-details div {
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+}
+
+.admin-answer-details dt {
+  color: var(--gray-3);
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.admin-answer-details dd {
+  margin-top: 3px;
+  color: var(--gray-1);
+  line-height: 1.45;
+}
+
+.admin-edit-form {
+  scroll-margin-top: 28px;
+}
+
+.admin-form-mode-card {
+  margin: 8px 0 22px;
+  border-radius: 14px;
+  font-family: 'DM Sans', sans-serif;
+}
+
+.admin-form-mode-card.is-default {
+  padding: 16px 18px;
+  border: 1px solid var(--border-dark);
+  background: var(--cream-light);
+}
+
+.admin-form-mode-card.is-default p {
+  margin-top: 6px;
+  color: var(--gray-2);
+  font-size: 0.86rem;
+  line-height: 1.5;
+}
+
+.admin-form-mode-card.is-custom {
+  border: 1.5px solid rgba(26,26,26,0.22);
+  background:
+    linear-gradient(135deg, rgba(255,255,255,0.42), rgba(232,228,219,0.72)),
+    var(--cream-light);
+}
+
+.admin-form-mode-card.is-custom .page-sub {
+  margin: -4px 0 18px;
 }
 
 .submission-overlay {
@@ -1813,6 +1903,68 @@ footer {
 
 .auth-form { margin-top: 10px; }
 
+.auth-password-field {
+  position: relative;
+}
+
+.auth-password-field .form-input {
+  padding-right: 52px;
+}
+
+.auth-password-toggle {
+  position: absolute;
+  right: 10px;
+  top: 50%;
+  width: 36px;
+  height: 36px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--gray-2);
+  cursor: pointer;
+  transform: translateY(-50%);
+  transition: background 0.2s, border-color 0.2s, color 0.2s;
+}
+
+.auth-password-toggle:hover,
+.auth-password-toggle:focus-visible {
+  background: var(--cream);
+  border-color: var(--border-dark);
+  color: var(--black);
+  outline: none;
+}
+
+.auth-password-toggle svg {
+  width: 20px;
+  height: 20px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.auth-password-toggle circle {
+  fill: currentColor;
+  stroke: none;
+}
+
+.auth-message {
+  display: block;
+  margin: 6px 0 16px;
+  padding: 12px 14px;
+  border: 1px solid rgba(176,56,58,0.24);
+  border-radius: 10px;
+  background: rgba(176,56,58,0.07);
+  color: var(--error);
+  font-size: 0.85rem;
+  font-weight: 600;
+  line-height: 1.45;
+}
+
 .auth-card .btn-primary,
 .auth-card .btn-secondary {
   width: 100%;
@@ -2300,6 +2452,58 @@ footer {
   gap: 24px;
 }
 
+.admin-live-status {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 18px;
+  background: rgba(247, 245, 240, 0.74);
+  box-shadow: 0 14px 40px rgba(26, 26, 26, 0.05);
+}
+
+.admin-live-status > div {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.admin-live-status-label {
+  color: var(--black);
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+
+.admin-live-status-time {
+  color: var(--gray-2);
+  font-size: 0.78rem;
+}
+
+.admin-refresh-button {
+  border: 1px solid var(--border-dark);
+  background: var(--black);
+  color: var(--cream);
+  border-radius: 999px;
+  padding: 8px 14px;
+  cursor: pointer;
+  font-size: 0.76rem;
+  font-weight: 700;
+  white-space: nowrap;
+  transition: transform 0.2s ease, opacity 0.2s ease;
+}
+
+.admin-refresh-button:hover:not(:disabled) {
+  transform: translateY(-1px);
+}
+
+.admin-refresh-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
 .admin-grid {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
@@ -2311,6 +2515,21 @@ footer {
   display: grid;
   gap: 12px;
   margin-top: 18px;
+}
+
+.registration-status-group {
+  display: grid;
+  gap: 12px;
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: 18px;
+  background: rgba(247, 245, 240, 0.58);
+}
+
+.registration-status-group h4 {
+  font-size: 0.88rem;
+  letter-spacing: 0.02em;
+  margin: 0;
 }
 
 .admin-list-row,
