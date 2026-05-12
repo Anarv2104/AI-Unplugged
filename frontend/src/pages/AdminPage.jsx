@@ -2139,7 +2139,7 @@ function selectResource(resource) {
             <div className="admin-section">
               <form className="form-card" onSubmit={handleGrantAdmin}>
                 <h3>Grant admin access</h3>
-                <p className="page-sub">Use the email of an existing Firebase user account.</p>
+                <p className="page-sub">Use the email of an existing user.</p><br />
                 <div className="form-field">
                   <label className="form-label">User email</label>
                   <input className="form-input" value={adminDraftEmail} onChange={(e) => setAdminDraftEmail(e.target.value)} />
