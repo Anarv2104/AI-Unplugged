@@ -2268,12 +2268,27 @@ footer {
 }
 
 .dashboard-shell {
-  padding-top: 150px;
+  padding-top: 118px;
+  padding-bottom: 96px;
+}
+
+.dashboard-head {
+  padding: 0 0 36px;
+  margin: 0;
+  max-width: 760px;
+}
+
+.dashboard-head h1 {
+  margin-bottom: 16px;
+}
+
+.dashboard-head .page-sub {
+  max-width: 700px;
 }
 
 .dashboard-summary-grid {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(190px, 1fr));
   gap: 18px;
   margin-bottom: 26px;
 }
@@ -2284,6 +2299,7 @@ footer {
   border-radius: 18px;
   padding: 24px;
   box-shadow: 0 10px 24px rgba(17,17,17,0.025);
+  min-width: 0;
 }
 
 .dashboard-summary-label {
@@ -2306,6 +2322,7 @@ footer {
 .dashboard-summary-card p {
   color: var(--gray-2);
   margin: 0;
+  line-height: 1.55;
 }
 
 .dashboard-main-grid {
@@ -2337,6 +2354,7 @@ footer {
 
 .dashboard-panel-head h3 {
   margin-bottom: 0;
+  line-height: 1.15;
 }
 
 .dashboard-registration-stack,
@@ -2409,6 +2427,112 @@ footer {
   gap: 12px;
   flex-wrap: wrap;
   margin-top: 18px;
+}
+
+@media (max-width: 860px) {
+  .dashboard-shell {
+    padding-top: 104px;
+    padding-bottom: 72px;
+  }
+
+  .dashboard-head {
+    padding-bottom: 28px;
+  }
+
+  .dashboard-head h1 {
+    font-size: clamp(2.15rem, 11vw, 3.3rem);
+    letter-spacing: -1.3px;
+  }
+
+  .dashboard-head .page-sub {
+    font-size: 1rem;
+    line-height: 1.55;
+  }
+
+  .dashboard-summary-grid,
+  .dashboard-main-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .dashboard-summary-card {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    grid-template-areas:
+      "value label"
+      "value caption";
+    column-gap: 18px;
+    row-gap: 4px;
+    align-items: center;
+    padding: 18px;
+  }
+
+  .dashboard-summary-label {
+    grid-area: label;
+    margin-bottom: 0;
+    letter-spacing: 0.16em;
+    font-size: 0.68rem;
+  }
+
+  .dashboard-summary-card strong {
+    grid-area: value;
+    min-width: 58px;
+    margin-bottom: 0;
+    font-size: 2.45rem;
+    text-align: center;
+  }
+
+  .dashboard-summary-card p {
+    grid-area: caption;
+    font-size: 0.92rem;
+  }
+
+  .dashboard-panel {
+    padding: 20px;
+  }
+}
+
+@media (max-width: 560px) {
+  .dashboard-shell {
+    padding-left: 18px;
+    padding-right: 18px;
+  }
+
+  .dashboard-summary-grid {
+    gap: 12px;
+    margin-bottom: 18px;
+  }
+
+  .dashboard-main-grid {
+    gap: 14px;
+  }
+
+  .dashboard-panel-head,
+  .dashboard-registration-card,
+  .dashboard-feed-item {
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  .dashboard-panel-head {
+    margin-bottom: 16px;
+  }
+
+  .dashboard-registration-card,
+  .dashboard-feed-item {
+    padding: 16px;
+  }
+
+  .dashboard-feed-link,
+  .dashboard-status-pill {
+    align-self: flex-start;
+    white-space: normal;
+  }
+
+  .dashboard-cta-row .btn-primary,
+  .dashboard-cta-row .btn-secondary {
+    width: 100%;
+    justify-content: center;
+  }
 }
 
 .admin-wrap {

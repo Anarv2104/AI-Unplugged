@@ -39,6 +39,19 @@ const hostSchema = {
   ]
 };
 
+function getFieldLabel(fieldId) {
+  return hostSchema.fields.find((field) => field.id === fieldId)?.label || fieldId;
+}
+
+function getSubmitErrorMessage(error) {
+  const fieldErrors = error?.details?.errors || {};
+  const fieldIds = Object.keys(fieldErrors);
+  if (fieldIds.length) {
+    return `Some answers need attention. Check “${getFieldLabel(fieldIds[0])}” and any highlighted fields, then submit again.`;
+  }
+  return error?.message || 'Could not submit. Please try again.';
+}
+
 export default function HostPage() {
   const navigate = useNavigate();
   const [values, setValues] = useState({});
@@ -77,7 +90,7 @@ export default function HostPage() {
     } catch (error) {
       const fieldErrors = error?.details?.errors;
       if (fieldErrors) setErrors(fieldErrors);
-      setFormMessage(error?.message || 'Could not submit. Please try again.');
+      setFormMessage(getSubmitErrorMessage(error));
       setSubmitting(false);
     }
   }
@@ -188,7 +201,7 @@ export default function HostPage() {
             </button>
             <span className="submit-note">We review host requests manually.</span>
           </div>
-          {formMessage ? <div className="form-error" style={{ display: 'block', marginTop: 12 }}>{formMessage}</div> : null}
+          {formMessage ? <div className="form-status-message" role="alert">{formMessage}</div> : null}
         </form>
       </div>
 

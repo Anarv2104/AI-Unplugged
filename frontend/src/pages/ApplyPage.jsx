@@ -8,6 +8,20 @@ import { buildInitialValues, validateAgainstSchema, REDIRECT_DELAY_MS } from '..
 import { getDefaultSchema, getPublishedEvents, getSchemaById, submitEventRegistration } from '../lib/platform';
 import SEO from '../components/SEO';
 
+function getFieldLabel(schema, fieldId) {
+  return schema?.fields?.find((field) => field.id === fieldId)?.label || fieldId;
+}
+
+function getSubmitErrorMessage(error, schema) {
+  const fieldErrors = error?.details?.errors || {};
+  const fieldIds = Object.keys(fieldErrors);
+  if (fieldIds.length) {
+    const firstLabel = getFieldLabel(schema, fieldIds[0]);
+    return `Some answers need attention. Check “${firstLabel}” and any highlighted fields, then submit again.`;
+  }
+  return error?.message || 'Could not submit. Please try again.';
+}
+
 export default function ApplyPage() {
   const navigate = useNavigate();
   const { user, profile, isAuthenticated, loading } = useAuth();
@@ -42,8 +56,14 @@ export default function ApplyPage() {
 
   useEffect(() => {
     async function loadSchema() {
+      setFormMessage('');
       if (selectedEvent?.formId) {
         const nextSchema = await getSchemaById(selectedEvent.formId, 'event');
+        if (!nextSchema) {
+          setSchema(null);
+          setFormMessage("This event's registration form changed. Refresh and try again.");
+          return;
+        }
         setSchema(nextSchema);
         return;
       }
@@ -95,7 +115,7 @@ export default function ApplyPage() {
     } catch (error) {
       const fieldErrors = error?.details?.errors;
       if (fieldErrors) setErrors(fieldErrors);
-      setFormMessage(error?.message || 'Could not submit. Please try again.');
+      setFormMessage(getSubmitErrorMessage(error, schema));
       setSubmitting(false);
     }
   }
@@ -187,10 +207,10 @@ export default function ApplyPage() {
                     ? 'Invite-only rooms require a direct invite.'
                     : selectedEvent?.entry === 'Curated'
                       ? 'Curated rooms are reviewed manually.'
-                      : 'Application-based events are reviewed manually.'}
+                  : 'Application-based events are reviewed manually.'}
               </span>
             </div>
-            {formMessage ? <div className="form-error" style={{ display: 'block', marginTop: 12 }}>{formMessage}</div> : null}
+            {formMessage ? <div className="form-status-message" role="alert">{formMessage}</div> : null}
           </form>
         </div>
       </div>

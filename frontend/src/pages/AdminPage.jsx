@@ -3,7 +3,7 @@ import { useSearchParams } from 'react-router-dom';
 import RichTextEditor from '../components/RichTextEditor';
 import { useAuth } from '../context/useAuth';
 import { formatEventStatusLabel, resolveHomeSpotlightEvents, sortEventsByState } from '../lib/events';
-import { defaultNodeLeadFormSchema, FIELD_TYPES, UPDATE_CATEGORIES } from '../lib/defaultContent';
+import { defaultEventFormSchema, defaultNodeLeadFormSchema, FIELD_TYPES, UPDATE_CATEGORIES } from '../lib/defaultContent';
 import {
   deleteDocument,
   exportDatasetForEvent,
@@ -643,7 +643,7 @@ export default function AdminPage() {
   }
 
   function selectEvent(event) {
-    const registrationMode = event.formId ? 'custom' : 'default';
+    const registrationMode = event.formId && event.formId !== defaultEventFormSchema.id ? 'custom' : 'default';
     setEventDraft({ ...event, registrationMode, dateDisplay: formatDateForDisplay(event.date) });
     const schema = eventForms.find((item) => item.id === event.formId);
     setEventCustomSchema(schema || schemaFromEvent(event));
@@ -692,7 +692,7 @@ function selectResource(resource) {
     }
     setIsSaving(true);
     try {
-      let formId = '';
+      let formId = 'default-event-form';
       if (eventDraft.registrationMode === 'custom') {
         const savedFormId = await saveFormSchema({
           ...eventCustomSchema,

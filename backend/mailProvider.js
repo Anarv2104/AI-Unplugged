@@ -50,8 +50,35 @@ function createBrevoProvider({ apiKey, senderEmail, senderName }) {
   }
 
   async function sendTransactionalEmail({ to, subject, html, text }) {
+    const config = validateMailConfig();
     const recipients = Array.isArray(to) ? to : [to];
-    return sendCampaignEmail({ recipients, subject, html, text });
+    const normalizedRecipients = recipients
+      .map((email) => String(email || '').trim().toLowerCase())
+      .filter(Boolean);
+
+    if (!normalizedRecipients.length) return { ok: true, sent: 0 };
+
+    const response = await fetch('https://api.brevo.com/v3/smtp/email', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'api-key': config.apiKey
+      },
+      body: JSON.stringify({
+        sender: { email: config.senderEmail, name: config.senderName },
+        to: normalizedRecipients.map((email) => ({ email })),
+        subject,
+        htmlContent: html,
+        textContent: text || null
+      })
+    });
+
+    if (!response.ok) {
+      const body = await response.text();
+      throw new Error(`Brevo send failed: ${body}`);
+    }
+
+    return { ok: true, sent: normalizedRecipients.length };
   }
 
   return {

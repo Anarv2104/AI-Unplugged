@@ -181,11 +181,17 @@ export async function getFormSchemas(kind = null) {
 
 export async function getDefaultSchema(kind) {
   const schemas = await getFormSchemas(kind);
-  return schemas.find((schema) => schema.isDefault) || schemas[0] || (kind === 'nodeLead' ? defaultNodeLeadFormSchema : defaultEventFormSchema);
+  const explicitDefault = schemas.find((schema) => schema.isDefault);
+  if (explicitDefault) return explicitDefault;
+  if (kind === 'nodeLead') return defaultNodeLeadFormSchema;
+  if (kind === 'event') return defaultEventFormSchema;
+  return schemas[0] || defaultEventFormSchema;
 }
 
 export async function getSchemaById(id, kind = null) {
   if (!id) return getDefaultSchema(kind || 'event');
+  if (id === defaultEventFormSchema.id) return defaultEventFormSchema;
+  if (id === defaultNodeLeadFormSchema.id) return defaultNodeLeadFormSchema;
   try {
     const result = await apiRequest(`/api/platform/event-forms/${encodeURIComponent(id)}`);
     return result.form || null;

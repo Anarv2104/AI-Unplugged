@@ -21,6 +21,7 @@ const admin = tryRequire('firebase-admin');
 const XLSX = tryRequire('xlsx');
 const { createBrevoProvider, splitEmails } = require('./mailProvider');
 const { prisma } = require('./src/db');
+const { LOG_DIR, ACTIVITY_LOG_PATH, ERROR_LOG_PATH, logActivity, logError } = require('./src/logger');
 const {
   UPLOAD_DIR,
   ensureUploadDir,
@@ -254,6 +255,13 @@ async function sendError(req, res, error) {
   const statusCode = error instanceof HttpError ? error.statusCode : 500;
   const safeMessage = getSafeErrorMessage(error, statusCode);
   if (statusCode >= 500) console.error('[server error]', error);
+  logError('request_error', error, {
+    route: req?.url || '',
+    method: req?.method || '',
+    statusCode,
+    safeMessage,
+    details: error instanceof HttpError ? error.details : null
+  });
   if (statusCode >= 500 || !(error instanceof HttpError)) await logAppError(req, error, statusCode, safeMessage);
   const details = error instanceof HttpError ? error.details : null;
   sendJson(res, statusCode, { ok: false, error: safeMessage, details });
@@ -335,9 +343,6 @@ function buildEventApprovalEmail({ registration, event }) {
     registration?.name || registration?.answers?.name || registration?.email || 'Builder'
   ).trim();
   const registrationId = String(registration?.registrationId || '').trim();
-  const dateDisplay = String(event?.dateDisplay || '').trim();
-  const location = normalizeMapAddress(event);
-  const mapLink = buildMapLink(event);
   const senderName = String(process.env.BREVO_SENDER_NAME || 'AI Unplugged').trim();
 
   const subject = `Registration confirmed: ${title}`;
@@ -347,9 +352,7 @@ function buildEventApprovalEmail({ registration, event }) {
       <p>Your registration for <strong>${escapeHtml(title)}</strong> has been approved.</p>
       <div style="margin:20px 0;padding:16px;border:1px solid #e5e7eb;border-radius:12px;background:#f9fafb">
         ${registrationId ? `<p style="margin:0 0 8px"><strong>Registration ID:</strong> ${escapeHtml(registrationId)}</p>` : ''}
-        ${dateDisplay ? `<p style="margin:0 0 8px"><strong>Date:</strong> ${escapeHtml(dateDisplay)}</p>` : ''}
-        ${location ? `<p style="margin:0 0 8px"><strong>Location:</strong> ${escapeHtml(location)}</p>` : ''}
-        ${mapLink ? `<p style="margin:0"><a href="${escapeHtml(mapLink)}" style="color:#2563eb">Open directions</a></p>` : ''}
+        <p style="margin:0">We will share event-specific details closer to the session if needed.</p>
       </div>
       <p>Please keep this email for your reference. If there are any event-specific instructions, our team will share them with you before the session.</p>
       <p>We look forward to hosting you.</p>
@@ -362,9 +365,7 @@ function buildEventApprovalEmail({ registration, event }) {
     `Your registration for ${title} has been approved.`,
     '',
     registrationId ? `Registration ID: ${registrationId}` : null,
-    dateDisplay ? `Date: ${dateDisplay}` : null,
-    location ? `Location: ${location}` : null,
-    mapLink ? `Directions: ${mapLink}` : null,
+    'We will share event-specific details closer to the session if needed.',
     '',
     'Please keep this email for your reference. If there are any event-specific instructions, our team will share them with you before the session.',
     '',
@@ -1312,7 +1313,14 @@ async function handleEventRegistration(req, res) {
   const schema = await getSchemaForKind({ kind: 'event', schemaId: event.formId || null });
   const { normalized, errors } = validateAnswers(schema, answers || {});
   if (Object.keys(errors).length) {
-    throw new HttpError(400, 'Validation failed.', { errors });
+    logActivity('event_registration_validation_failed', {
+      eventId,
+      eventTitle: event.title,
+      schemaId: schema.id,
+      errorFields: Object.keys(errors),
+      answerFields: Object.keys(answers || {})
+    });
+    throw new HttpError(400, 'Some answers need attention. Check the highlighted fields and submit again.', { errors });
   }
 
   const email = normalizeEmail(normalized.email || payload.email || authContext.token.email || '');
@@ -1403,16 +1411,7 @@ async function handleEventRegistration(req, res) {
     try {
       const safeTitle = escapeHtml(event.title || '');
       const safeId = escapeHtml(registrationId);
-      const displayAddress = normalizeMapAddress(event);
-      const mapLink = buildMapLink(event);
-      const safeAddress = escapeHtml(displayAddress);
-      const safeMapLink = escapeHtml(mapLink);
-      const htmlLocationBlock = displayAddress
-        ? `<p><strong>Location:</strong> ${safeAddress}</p>${mapLink ? `<p><a href="${safeMapLink}">Open directions</a></p>` : ''}`
-        : '';
-      const textLocationBlock = displayAddress
-        ? `\nLocation: ${displayAddress}${mapLink ? `\nDirections: ${mapLink}` : ''}`
-        : '';
+      const detailsNote = 'We will share event-specific details closer to the session if needed.';
       const isConfirmed = reviewStatus === 'accepted';
       const isWaitlisted = reviewStatus === 'waitlisted';
       const subject = isConfirmed
@@ -1421,20 +1420,38 @@ async function handleEventRegistration(req, res) {
           ? `Waitlist request received: ${event.title}`
           : `Registration received: ${event.title}`;
       const html = isConfirmed
-        ? `<p>Your registration for <strong>${safeTitle}</strong> is confirmed.</p><p>Your registration ID is <strong>${safeId}</strong>.</p>${htmlLocationBlock}`
+        ? `<p>Your registration for <strong>${safeTitle}</strong> is confirmed.</p><p>Your registration ID is <strong>${safeId}</strong>.</p><p>${escapeHtml(detailsNote)}</p>`
         : isWaitlisted
-          ? `<p>Your request for <strong>${safeTitle}</strong> is on the waitlist.</p><p>Your registration ID is <strong>${safeId}</strong>.</p><p>${escapeHtml(waitlistMessage)}</p>${htmlLocationBlock}`
-          : `<p>Your registration for <strong>${safeTitle}</strong> has been received.</p><p>Your registration ID is <strong>${safeId}</strong>.</p><p>We will review your request and email you with the next update.</p>${htmlLocationBlock}`;
+          ? `<p>Your request for <strong>${safeTitle}</strong> is on the waitlist.</p><p>Your registration ID is <strong>${safeId}</strong>.</p><p>${escapeHtml(waitlistMessage)}</p><p>${escapeHtml(detailsNote)}</p>`
+          : `<p>Your registration for <strong>${safeTitle}</strong> has been received.</p><p>Your registration ID is <strong>${safeId}</strong>.</p><p>We will review your request and email you with the next update.</p><p>${escapeHtml(detailsNote)}</p>`;
       const text = isConfirmed
-        ? `Your registration for ${event.title} is confirmed. Registration ID: ${registrationId}${textLocationBlock}`
+        ? `Your registration for ${event.title} is confirmed. Registration ID: ${registrationId}\n${detailsNote}`
         : isWaitlisted
-          ? `Your request for ${event.title} is on the waitlist. Registration ID: ${registrationId}\n${waitlistMessage}${textLocationBlock}`
-          : `Your registration for ${event.title} has been received. Registration ID: ${registrationId}\nWe will review your request and email you with the next update.${textLocationBlock}`;
+          ? `Your request for ${event.title} is on the waitlist. Registration ID: ${registrationId}\n${waitlistMessage}\n${detailsNote}`
+          : `Your registration for ${event.title} has been received. Registration ID: ${registrationId}\nWe will review your request and email you with the next update.\n${detailsNote}`;
       await mailProvider.sendTransactionalEmail({ to: email, subject, html, text });
     } catch (error) {
       console.error('Registration email failed:', error.message);
+      logError('event_registration_email_failed', error, {
+        eventId,
+        registrationId,
+        email,
+        reviewStatus
+      });
     }
   }
+
+  logActivity('event_registration_created', {
+    eventId,
+    eventTitle: event.title,
+    registrationId,
+    entryType,
+    reviewStatus: created.reviewStatus,
+    userId: authContext.uid,
+    email,
+    capacity,
+    activeCountBeforeSubmission: activeCount
+  });
 
   sendJson(res, 200, { ok: true, id: created.id, registrationId, entryType, reviewStatus: created.reviewStatus, message: statusMessage });
 }
@@ -1446,7 +1463,12 @@ async function handleNodeLeadApplication(req, res) {
   const { normalized, errors } = validateAnswers(schema, payload.answers || {});
 
   if (Object.keys(errors).length) {
-    throw new HttpError(400, 'Validation failed.', { errors });
+    logActivity('node_lead_validation_failed', {
+      schemaId: schema.id,
+      errorFields: Object.keys(errors),
+      answerFields: Object.keys(payload.answers || {})
+    });
+    throw new HttpError(400, 'Some answers need attention. Check the highlighted fields and submit again.', { errors });
   }
 
   const created = await prisma.nodeLeadApplication.create({
@@ -1460,6 +1482,13 @@ async function handleNodeLeadApplication(req, res) {
       reviewStatus: 'pending',
       userId: authContext ? authContext.uid : null
     }
+  });
+
+  logActivity('node_lead_application_created', {
+    id: created.id,
+    schemaId: schema.id,
+    email: normalized.email || '',
+    userId: authContext ? authContext.uid : null
   });
 
   sendJson(res, 200, { ok: true, id: created.id });
@@ -1489,7 +1518,11 @@ async function handleHostApplication(req, res) {
   }
 
   if (Object.keys(errors).length) {
-    throw new HttpError(400, 'Validation failed.', { errors });
+    logActivity('host_application_validation_failed', {
+      errorFields: Object.keys(errors),
+      answerFields: Object.keys(answers || {})
+    });
+    throw new HttpError(400, 'Some answers need attention. Check the highlighted fields and submit again.', { errors });
   }
 
   const email = String(answers.email || '').trim();
@@ -1519,6 +1552,13 @@ async function handleHostApplication(req, res) {
       estimatedAudience: Number.isFinite(cleanAnswers.estimatedAudience) ? cleanAnswers.estimatedAudience : null,
       reviewStatus: 'pending'
     }
+  });
+
+  logActivity('host_application_created', {
+    id: created.id,
+    email,
+    venue: cleanAnswers.venue,
+    reviewStatus: created.reviewStatus
   });
 
   sendJson(res, 200, { ok: true, id: created.id });
@@ -2077,6 +2117,14 @@ async function handleListEventForms(req, res, url) {
 
 async function handleGetEventForm(req, res, formId) {
   const form = await prisma.eventForm.findUnique({ where: { id: formId } });
+  if (!form && formId === BUILT_IN_DEFAULT_EVENT_SCHEMA.id) {
+    sendJson(res, 200, { ok: true, form: BUILT_IN_DEFAULT_EVENT_SCHEMA });
+    return;
+  }
+  if (!form && formId === BUILT_IN_DEFAULT_NODE_LEAD_SCHEMA.id) {
+    sendJson(res, 200, { ok: true, form: BUILT_IN_DEFAULT_NODE_LEAD_SCHEMA });
+    return;
+  }
   if (!form) throw new HttpError(404, 'Form not found.');
   sendJson(res, 200, { ok: true, form });
 }
@@ -2630,6 +2678,8 @@ server.listen(PORT, '0.0.0.0', () => {
   console.log(`Serving frontend from ${DIST_DIR}`);
   console.log(`Saving legacy submissions to ${CSV_PATH}`);
   console.log(`Uploads directory: ${UPLOAD_DIR}`);
+  console.log(`Activity log: ${ACTIVITY_LOG_PATH}`);
+  console.log(`Error log: ${ERROR_LOG_PATH}`);
   console.log(`Firebase Admin status: ${firebaseInitState.status}`);
   console.log(`Firebase Admin detail: ${firebaseInitState.message}`);
 });
