@@ -5,6 +5,20 @@ import { useAuth } from '../context/useAuth';
 import { UPDATE_CATEGORIES } from '../lib/defaultContent';
 import { getUpdates } from '../lib/platform';
 
+function getEmptyUpdateCopy(activeCategory) {
+  if (activeCategory === 'all') {
+    return {
+      title: 'No updates are published right now.',
+      body: 'The next platform signals, recaps, and notices are being prepared. Check back soon for the latest from AI Unplugged.',
+    };
+  }
+
+  return {
+    title: `No ${activeCategory.toLowerCase()} updates yet.`,
+    body: 'This category does not have a live update right now, but the next signal is being lined up. Browse all updates or check back soon.',
+  };
+}
+
 export default function UpdatesPage() {
   const { isAuthenticated } = useAuth();
   const location = useLocation();
@@ -24,6 +38,7 @@ export default function UpdatesPage() {
   const visible = activeCategory === 'all'
     ? updates
     : updates.filter((item) => item.category === activeCategory);
+  const emptyCopy = getEmptyUpdateCopy(activeCategory);
 
   function openUpdate(slug) {
     if (isAuthenticated) {
@@ -63,7 +78,18 @@ export default function UpdatesPage() {
           {loading ? <div className="empty-state">Loading updates...</div> : null}
 
           {!loading && !visible.length ? (
-            <div className="empty-state">No updates yet.</div>
+            <div className="events-empty-state">
+              <p className="filter-empty-kicker">Signal incoming</p>
+              <h2>{emptyCopy.title}</h2>
+              <p>{emptyCopy.body}</p>
+              {activeCategory !== 'all' ? (
+                <div className="filter-empty-actions">
+                  <button type="button" className="filter-empty-reset" onClick={() => setActiveCategory('all')}>
+                    Browse all updates
+                  </button>
+                </div>
+              ) : null}
+            </div>
           ) : null}
 
           {!loading && visible.length ? (

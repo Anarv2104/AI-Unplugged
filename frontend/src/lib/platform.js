@@ -70,6 +70,8 @@ function sortByUpdatedAtDesc(items) {
   return [...items].sort((a, b) => toMillis(b.updatedAt || b.createdAt) - toMillis(a.updatedAt || a.createdAt));
 }
 
+const RATE_LIMIT_MESSAGE = 'Too many attempts in a short time. Please wait a minute, then try again.';
+
 async function apiRequest(path, { method = 'GET', body, requireAuth = false, formData } = {}) {
   const headers = {};
 
@@ -95,6 +97,9 @@ async function apiRequest(path, { method = 'GET', body, requireAuth = false, for
   const payload = await response.json().catch(() => ({}));
   if (!response.ok) {
     let message = payload.error || 'Request failed.';
+    if (response.status === 429) {
+      message = RATE_LIMIT_MESSAGE;
+    }
     if (response.status === 404 && path.startsWith('/api/platform/') && !payload.error) {
       message = 'The running backend is outdated or missing this route. Restart the backend and refresh the frontend.';
     }
@@ -102,6 +107,8 @@ async function apiRequest(path, { method = 'GET', body, requireAuth = false, for
       message = 'Backend setup is incomplete. Add backend/serviceAccount.json and set FIREBASE_SERVICE_ACCOUNT_PATH in backend/.env, then restart the backend.';
     }
     const error = new Error(message);
+    error.status = response.status;
+    error.isRateLimited = response.status === 429;
     error.details = payload.details || null;
     throw error;
   }
@@ -529,7 +536,13 @@ async function uploadViaBackend(kind, file, draftId, onProgress) {
       if (xhr.status >= 200 && xhr.status < 300) {
         resolve(payload);
       } else {
-        reject(new Error(payload?.error || `Upload failed with status ${xhr.status}.`));
+        const message = xhr.status === 429
+          ? RATE_LIMIT_MESSAGE
+          : payload?.error || `Upload failed with status ${xhr.status}.`;
+        const error = new Error(message);
+        error.status = xhr.status;
+        error.isRateLimited = xhr.status === 429;
+        reject(error);
       }
     };
     xhr.send(formData);

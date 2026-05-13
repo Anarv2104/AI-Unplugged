@@ -18,17 +18,20 @@ const HAS_DIST = fs.existsSync(DIST_DIR);
 const STATIC_ROOT = DIST_DIR;
 
 const admin = tryRequire('firebase-admin');
-const XLSX = tryRequire('xlsx');
+const ExcelJS = tryRequire('exceljs');
 const { createBrevoProvider, splitEmails } = require('./mailProvider');
 const { prisma } = require('./src/db');
 const { LOG_DIR, ACTIVITY_LOG_PATH, ERROR_LOG_PATH, logActivity, logError } = require('./src/logger');
 const {
+  STORAGE_DRIVER,
   UPLOAD_DIR,
   ensureUploadDir,
   saveUpload,
   deleteUpload,
-  publicUrlFor,
-  resolveServePath
+  resolveServePath,
+  storageKeyFromUrl,
+  getStorageDiagnostics,
+  s3ConfigWarnings
 } = require('./src/storage');
 
 const firebaseInitState = {
@@ -224,6 +227,13 @@ function jsonReplacer(_key, value) {
   return value;
 }
 
+function applySecurityHeaders(res) {
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('X-Frame-Options', 'DENY');
+  res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+  res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=(self)');
+}
+
 function getSafeErrorMessage(error, statusCode) {
   if (error instanceof HttpError && statusCode < 500) return error.message;
   if (statusCode === 401) return 'Please log in and try again.';
@@ -265,6 +275,69 @@ async function sendError(req, res, error) {
   if (statusCode >= 500 || !(error instanceof HttpError)) await logAppError(req, error, statusCode, safeMessage);
   const details = error instanceof HttpError ? error.details : null;
   sendJson(res, statusCode, { ok: false, error: safeMessage, details });
+}
+
+const rateLimitBuckets = new Map();
+const RATE_LIMITS = {
+  publicSubmission: { windowMs: 10 * 60 * 1000, max: 30 },
+  comments: { windowMs: 10 * 60 * 1000, max: 40 },
+  authProfile: { windowMs: 10 * 60 * 1000, max: 80 },
+  uploads: { windowMs: 60 * 60 * 1000, max: 80 },
+  adminMutation: { windowMs: 60 * 1000, max: 120 },
+  apiDefault: { windowMs: 60 * 1000, max: 300 }
+};
+
+function clientIp(req) {
+  const forwarded = String(req.headers['x-forwarded-for'] || '').split(',')[0].trim();
+  return forwarded || req.socket?.remoteAddress || 'unknown';
+}
+
+function rateLimitGroup(req, url) {
+  if (!url.pathname.startsWith('/api/')) return null;
+  if (req.method === 'POST' && [
+    '/api/submissions',
+    '/api/platform/registrations/event',
+    '/api/platform/node-leads',
+    '/api/platform/hosts'
+  ].includes(url.pathname)) return 'publicSubmission';
+  if (url.pathname === '/api/platform/comments') return 'comments';
+  if (url.pathname === '/api/platform/auth/sync' || url.pathname === '/api/platform/profile/newsletter') return 'authProfile';
+  if (url.pathname.startsWith('/api/platform/uploads/')) return 'uploads';
+  if (req.method !== 'GET' && (
+    url.pathname === '/api/platform/newsletter' ||
+    url.pathname === '/api/platform/exports' ||
+    url.pathname.startsWith('/api/platform/admins') ||
+    url.pathname.includes('/review') ||
+    url.pathname.includes('/invites') ||
+    url.pathname.startsWith('/api/platform/site-settings') ||
+    url.pathname.startsWith('/api/platform/import-content')
+  )) return 'adminMutation';
+  if (req.method !== 'GET' && url.pathname.startsWith('/api/platform/')) return 'adminMutation';
+  return 'apiDefault';
+}
+
+function enforceRateLimit(req, url) {
+  const group = rateLimitGroup(req, url);
+  if (!group) return;
+  const rule = RATE_LIMITS[group] || RATE_LIMITS.apiDefault;
+  const now = Date.now();
+  const key = `${group}:${clientIp(req)}`;
+  const bucket = rateLimitBuckets.get(key) || { count: 0, resetAt: now + rule.windowMs };
+  if (bucket.resetAt <= now) {
+    bucket.count = 0;
+    bucket.resetAt = now + rule.windowMs;
+  }
+  bucket.count += 1;
+  rateLimitBuckets.set(key, bucket);
+  if (bucket.count > rule.max) {
+    throw new HttpError(429, 'Too many requests. Please wait a moment and try again.');
+  }
+
+  if (rateLimitBuckets.size > 5000) {
+    for (const [bucketKey, value] of rateLimitBuckets.entries()) {
+      if (value.resetAt <= now) rateLimitBuckets.delete(bucketKey);
+    }
+  }
 }
 
 function sendFile(res, filePath, extraHeaders = {}) {
@@ -434,6 +507,9 @@ async function sendInviteEmail(req, invite, event) {
 function getServerCapabilities() {
   return {
     skilldbUploadApi: true,
+    storageDriver: STORAGE_DRIVER,
+    rateLimiting: true,
+    securityHeaders: true,
     routes: {
       createSkill: '/api/platform/skills',
       updateSkill: '/api/platform/skills/:id',
@@ -609,6 +685,34 @@ function flattenRow(row, { includeFormSchema = true } = {}) {
   }
 
   return clean;
+}
+
+function objectRowsToCsv(rows) {
+  const headers = [...rows.reduce((set, row) => {
+    for (const key of Object.keys(row || {})) set.add(key);
+    return set;
+  }, new Set())];
+  if (!headers.length) return '';
+  const lines = [
+    headers.map(escapeCsv).join(','),
+    ...rows.map((row) => headers.map((key) => escapeCsv(row?.[key])).join(','))
+  ];
+  return `${lines.join('\n')}\n`;
+}
+
+async function objectRowsToXlsxBuffer(rows, sheetName = 'Export') {
+  if (!ExcelJS) throw new HttpError(503, 'Spreadsheet export support is unavailable. Install exceljs in the backend runtime.');
+  const workbook = new ExcelJS.Workbook();
+  const worksheet = workbook.addWorksheet(sheetName);
+  const headers = [...rows.reduce((set, row) => {
+    for (const key of Object.keys(row || {})) set.add(key);
+    return set;
+  }, new Set())];
+  if (headers.length) {
+    worksheet.addRow(headers);
+    for (const row of rows) worksheet.addRow(headers.map((key) => row?.[key] ?? ''));
+  }
+  return Buffer.from(await workbook.xlsx.writeBuffer());
 }
 
 function serializeValue(value) {
@@ -792,10 +896,10 @@ function validateSkillFields(fields) {
   if (!fields.useCase) throw new HttpError(400, 'Use case is required.');
 }
 
-function saveSkillFile({ userId, skillId, file }) {
+async function saveSkillFile({ userId, skillId, file }) {
   const safeName = safeStorageFileName(file.filename);
   const relPath = `skills/${userId}/${skillId}/${Date.now()}-${safeName}`;
-  const stored = saveUpload(file.buffer, relPath);
+  const stored = await saveUpload(file.buffer, relPath, { mimeType: 'text/markdown' });
   return {
     fileName: file.filename,
     fileSize: stored.size,
@@ -869,7 +973,7 @@ async function handleCreateSkill(req, res) {
   const uploadFile = ensureSkillMarkdownFile(files.file, { required: true });
 
   const skillId = crypto.randomUUID();
-  const upload = saveSkillFile({
+  const upload = await saveSkillFile({
     userId: authContext.uid,
     skillId,
     file: uploadFile
@@ -913,8 +1017,8 @@ async function handleUpdateSkill(req, res, skillId) {
   let upload = {};
   let markdownContent;
   if (uploadFile) {
-    if (existing.filePath) deleteUpload(existing.filePath);
-    upload = saveSkillFile({
+    if (existing.filePath) await deleteUpload(existing.filePath);
+    upload = await saveSkillFile({
       userId: authContext.uid,
       skillId,
       file: uploadFile
@@ -954,7 +1058,7 @@ async function handleDeleteSkill(req, res, skillId) {
     throw new HttpError(403, 'You can only delete your own submissions.');
   }
 
-  if (existing.filePath) deleteUpload(existing.filePath);
+  if (existing.filePath) await deleteUpload(existing.filePath);
   await prisma.skill.delete({ where: { id: skillId } });
   sendJson(res, 200, { ok: true, id: skillId });
 }
@@ -1085,7 +1189,8 @@ function getSetupWarnings() {
     warnings.push('BOOTSTRAP_ADMIN_EMAILS is empty.');
   }
   if (!admin) warnings.push('firebase-admin is not installed for the backend runtime.');
-  if (!XLSX) warnings.push('xlsx is not installed, so spreadsheet exports are unavailable.');
+  if (!ExcelJS) warnings.push('exceljs is not installed, so spreadsheet imports/exports are unavailable.');
+  warnings.push(...s3ConfigWarnings());
   return warnings;
 }
 
@@ -1100,6 +1205,7 @@ function getSetupDiagnostics() {
     database: {
       configured: Boolean(process.env.DATABASE_URL)
     },
+    storage: getStorageDiagnostics(),
     warnings: getSetupWarnings()
   };
 }
@@ -1107,7 +1213,8 @@ function getSetupDiagnostics() {
 function getPublicDiagnostics() {
   return {
     firebaseAdmin: { status: firebaseInitState.status === 'ready' ? 'ready' : 'unavailable' },
-    database: { configured: Boolean(process.env.DATABASE_URL) }
+    database: { configured: Boolean(process.env.DATABASE_URL) },
+    storage: { driver: STORAGE_DRIVER }
   };
 }
 
@@ -1201,23 +1308,13 @@ function buildEventData(payload = {}) {
 }
 
 function relUploadPathFromUrl(urlValue) {
-  const value = String(urlValue || '').trim();
-  if (!value) return '';
-  try {
-    const parsed = value.startsWith('http://') || value.startsWith('https://')
-      ? new URL(value)
-      : new URL(value, 'http://local.test');
-    if (!parsed.pathname.startsWith('/uploads/')) return '';
-    return decodeURIComponent(parsed.pathname.replace(/^\/uploads\/+/, ''));
-  } catch (error) {
-    return '';
-  }
+  return storageKeyFromUrl(urlValue);
 }
 
-function cleanupUpdateAttachments(attachments) {
+async function cleanupUpdateAttachments(attachments) {
   for (const attachment of Array.isArray(attachments) ? attachments : []) {
     const relPath = relUploadPathFromUrl(attachment?.url);
-    if (relPath) deleteUpload(relPath);
+    if (relPath) await deleteUpload(relPath);
   }
 }
 
@@ -1253,12 +1350,31 @@ function normalizeUploadBase64(upload) {
   return Buffer.from(clean || '', 'base64');
 }
 
-function extractRecipientsFromUpload(upload) {
-  if (!XLSX) throw new HttpError(503, 'Spreadsheet parsing support is unavailable in the backend runtime.');
+async function parseXlsxObjects(buffer) {
+  if (!ExcelJS) throw new HttpError(503, 'Spreadsheet parsing support is unavailable in the backend runtime.');
+  const workbook = new ExcelJS.Workbook();
+  await workbook.xlsx.load(buffer);
+  const worksheet = workbook.worksheets[0];
+  if (!worksheet) return [];
+  const rows = [];
+  worksheet.eachRow((row) => {
+    rows.push(row.values.slice(1).map((cell) => {
+      if (cell && typeof cell === 'object' && 'text' in cell) return cell.text;
+      if (cell && typeof cell === 'object' && 'result' in cell) return cell.result;
+      return cell;
+    }));
+  });
+  if (!rows.length) return [];
+  const headers = rows.shift().map((item) => String(item || '').trim());
+  return rows.map((row) => Object.fromEntries(headers.map((key, index) => [key, row[index] || ''])));
+}
+
+async function extractRecipientsFromUpload(upload) {
   const buffer = normalizeUploadBase64(upload);
-  const workbook = XLSX.read(buffer, { type: 'buffer' });
-  const sheetName = workbook.SheetNames[0];
-  const rows = XLSX.utils.sheet_to_json(workbook.Sheets[sheetName], { header: 1 });
+  const name = String(upload?.name || '').toLowerCase();
+  const rows = name.endsWith('.xlsx')
+    ? (await parseXlsxObjects(buffer)).map((row) => Object.values(row))
+    : buffer.toString('utf8').split(/\r?\n/).map((line) => line.split(','));
   const emails = new Set();
 
   for (const row of rows) {
@@ -1637,7 +1753,6 @@ async function handleDeleteComment(req, res, commentId) {
 
 async function handleExport(req, res) {
   await requireAdminAuth(req);
-  if (!XLSX) throw new HttpError(503, 'Spreadsheet export support is unavailable. Install xlsx in the backend runtime.');
 
   const payload = await readJson(req);
   const allowedDatasets = new Set(['eventRegistrations', 'nodeLeadApplications', 'hostApplications']);
@@ -1664,12 +1779,10 @@ async function handleExport(req, res) {
     return;
   }
 
-  const worksheet = XLSX.utils.json_to_sheet(rows.map((row) => flattenRow(row, { includeFormSchema: false })));
-  const workbook = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(workbook, worksheet, 'Export');
+  const flatRows = rows.map((row) => flattenRow(row, { includeFormSchema: false }));
 
   if (format === 'xlsx') {
-    const buffer = XLSX.write(workbook, { type: 'buffer', bookType: 'xlsx' });
+    const buffer = await objectRowsToXlsxBuffer(flatRows, 'Export');
     sendJson(res, 200, {
       ok: true,
       filename: `${dataset}.xlsx`,
@@ -1679,7 +1792,7 @@ async function handleExport(req, res) {
     return;
   }
 
-  const csv = XLSX.utils.sheet_to_csv(worksheet);
+  const csv = objectRowsToCsv(flatRows);
   sendJson(res, 200, {
     ok: true,
     filename: `${dataset}.csv`,
@@ -1699,7 +1812,7 @@ async function handleNewsletterCampaign(req, res) {
 
   let recipients = [];
   if (recipientsUpload?.base64) {
-    recipients = extractRecipientsFromUpload(recipientsUpload).slice(0, 300);
+    recipients = (await extractRecipientsFromUpload(recipientsUpload)).slice(0, 300);
   } else {
     const subscribers = await prisma.newsletterSubscriber.findMany({
       where: { status: 'subscribed' },
@@ -1957,7 +2070,7 @@ async function handleDeleteUpdate(req, res, updateId) {
   if (!existing) throw new HttpError(404, 'Update not found.');
   await prisma.update.delete({ where: { id: updateId } });
   try {
-    cleanupUpdateAttachments(existing.attachments);
+    await cleanupUpdateAttachments(existing.attachments);
   } catch (error) {
     console.error('Update attachment cleanup failed:', error.message);
   }
@@ -2191,15 +2304,15 @@ function parseCsvRows(text) {
   });
 }
 
-function parseInviteUpload(upload) {
+async function parseInviteUpload(upload) {
   if (!upload?.base64) return [];
   const name = String(upload.name || '').toLowerCase();
   const buffer = Buffer.from(upload.base64, 'base64');
-  if (name.endsWith('.xlsx') || name.endsWith('.xls')) {
-    if (!XLSX) throw new HttpError(503, 'Spreadsheet parsing support is unavailable in the backend runtime.');
-    const workbook = XLSX.read(buffer, { type: 'buffer' });
-    const sheetName = workbook.SheetNames[0];
-    return XLSX.utils.sheet_to_json(workbook.Sheets[sheetName] || {});
+  if (name.endsWith('.xlsx')) {
+    return parseXlsxObjects(buffer);
+  }
+  if (name.endsWith('.xls')) {
+    throw new HttpError(415, 'Legacy .xls files are not supported. Upload CSV or XLSX.');
   }
   return parseCsvRows(buffer.toString('utf8'));
 }
@@ -2228,7 +2341,7 @@ async function handleEventInvites(req, res, eventId, action = '') {
 
   const payload = await readJson(req);
   if (req.method === 'POST' && action === 'import') {
-    const rows = parseInviteUpload(payload.upload || {});
+    const rows = await parseInviteUpload(payload.upload || {});
     const invites = [];
     for (const row of rows) {
       const invite = await upsertEventInvite(eventId, row);
@@ -2367,7 +2480,7 @@ async function handleUploadFile(req, res, kind) {
   const folder = kind === 'update-attachment'
     ? `updates/${draftId}/attachments`
     : `resources/${draftId}/media`;
-  const stored = saveUpload(file.buffer, `${folder}/${safeName}`);
+  const stored = await saveUpload(file.buffer, `${folder}/${safeName}`, { mimeType: declaredMime });
 
   if (kind === 'update-attachment') {
     sendJson(res, 200, {
@@ -2399,6 +2512,7 @@ console.info(
 
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, `http://${req.headers.host}`);
+  applySecurityHeaders(res);
 
   const htmlRouteMap = {
     '/index.html': '/',
@@ -2411,6 +2525,8 @@ const server = http.createServer(async (req, res) => {
   };
 
   try {
+    enforceRateLimit(req, url);
+
     if (url.pathname.startsWith('/uploads/') && (req.method === 'GET' || req.method === 'HEAD')) {
       const target = resolveServePath(url.pathname);
       if (!target || !fs.existsSync(target) || !fs.statSync(target).isFile()) {
@@ -2677,7 +2793,8 @@ server.listen(PORT, '0.0.0.0', () => {
   console.log(`AI Unplugged running at http://localhost:${PORT}`);
   console.log(`Serving frontend from ${DIST_DIR}`);
   console.log(`Saving legacy submissions to ${CSV_PATH}`);
-  console.log(`Uploads directory: ${UPLOAD_DIR}`);
+  console.log(`Storage driver: ${STORAGE_DRIVER}`);
+  if (STORAGE_DRIVER === 'local') console.log(`Uploads directory: ${UPLOAD_DIR}`);
   console.log(`Activity log: ${ACTIVITY_LOG_PATH}`);
   console.log(`Error log: ${ERROR_LOG_PATH}`);
   console.log(`Firebase Admin status: ${firebaseInitState.status}`);

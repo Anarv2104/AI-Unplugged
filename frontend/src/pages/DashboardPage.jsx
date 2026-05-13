@@ -85,7 +85,7 @@ export default function DashboardPage() {
         <p className="page-sub">Your events, the latest platform signal, and the recaps you may have missed.</p>
       </div>
 
-      {error ? <div className="form-error" style={{ display: 'block' }}>{error}</div> : null}
+      {error ? <div className="form-status-message" role="alert">{error}</div> : null}
 
       <div className="dashboard-summary-grid">
         {summary.map((card) => (

@@ -7,6 +7,20 @@ import SEO from '../components/SEO';
 
 const filters = ['all', 'Flagship', 'Execution', 'Showcase', 'Opportunity'];
 
+function getEmptyEventCopy(selectedType) {
+  if (selectedType === 'all') {
+    return {
+      title: 'No published events are live right now.',
+      body: 'The next AI Unplugged rooms are being lined up. Register your interest and we will route you when the right session opens.',
+    };
+  }
+
+  return {
+    title: `No ${selectedType.toLowerCase()} events are live right now.`,
+    body: 'This category is quiet for the moment, but the next rooms are being planned. Check back soon or register your interest for upcoming sessions.',
+  };
+}
+
 function EventSkeleton() {
   return (
     <div className="event-card-light event-card-skeleton" aria-hidden="true">
@@ -45,6 +59,8 @@ export default function EventsPage() {
     else nextParams.set('type', filter);
     setSearchParams(nextParams);
   }
+
+  const emptyCopy = getEmptyEventCopy(selectedType);
 
   const eventsSchemas = [
     {
@@ -118,7 +134,14 @@ export default function EventsPage() {
                 </div>
               ) : (
                 <div className="events-empty-state">
-                  <p>No published events match this filter yet. You can still <Link to="/attend">open the attend form</Link>.</p>
+                  <p className="filter-empty-kicker">Rooms in progress</p>
+                  <h2>{emptyCopy.title}</h2>
+                  <p>{emptyCopy.body}</p>
+                  <div className="filter-empty-actions">
+                    <button type="button" className="filter-empty-reset" onClick={() => setFilter('all')}>
+                      Browse all events
+                    </button>
+                  </div>
                 </div>
               )}
             </>

@@ -8,7 +8,7 @@ Use this checklist before making AI Unplugged live. The app uses Postgres for al
 - Choose hosted Postgres: Render/Railway/Fly Postgres, AWS RDS, Neon, Supabase Postgres, or equivalent.
 - Confirm upload persistence:
   - VPS/EC2: persistent disk path for `UPLOAD_DIR`.
-  - Managed host: persistent disk/volume, or migrate uploads to object storage before production traffic.
+  - Managed host: persistent disk/volume, or `STORAGE_DRIVER=s3` with object storage before production traffic.
 - Confirm the final domain and DNS access.
 
 ## 2. Prepare Secrets
@@ -17,7 +17,9 @@ Backend secrets:
 
 - `DATABASE_URL`
 - `PUBLIC_BASE_URL`
+- `STORAGE_DRIVER`
 - `UPLOAD_DIR`
+- `S3_BUCKET`, `S3_REGION`, `S3_PUBLIC_BASE_URL` if `STORAGE_DRIVER=s3`
 - `FIREBASE_SERVICE_ACCOUNT_PATH`
 - `BREVO_API_KEY`
 - `BREVO_SENDER_EMAIL`
@@ -67,12 +69,14 @@ VPS/EC2:
 - Use systemd or a process manager.
 - Put nginx/Caddy in front of `localhost:8000`.
 - Enable HTTPS.
-- Keep `backend/uploads` on persistent disk.
+- Keep `backend/uploads` on persistent disk, or use `STORAGE_DRIVER=s3`.
 
 ## 5. Verify Health
 
 - Open `https://your-domain.com/api/platform/health`.
 - Confirm response has `"ok": true`.
+- Confirm response capabilities show the expected `storageDriver`.
+- Confirm response capabilities show rate limiting/security headers enabled.
 - Log in with a bootstrap admin email.
 - Open Admin dashboard.
 - Confirm Firebase Admin status is `ready`.
@@ -96,6 +100,7 @@ VPS/EC2:
 - Test Node Lead application.
 - Test resource/update publishing.
 - Test upload persistence by uploading a resource image or attachment, restarting the service, and opening the uploaded file URL.
+- If `STORAGE_DRIVER=s3`, confirm the object exists in the bucket and the returned URL opens publicly or through the configured CDN.
 
 ## 7. Email Verification
 
@@ -116,6 +121,8 @@ VPS/EC2:
 ## 9. Backups And Operations
 
 - Enable daily Postgres backups.
-- Keep a backup/restore plan for uploaded files.
+- Keep a backup/restore plan for uploaded files: persistent disk backup for local storage, or bucket versioning/lifecycle policy for S3.
+- Keep `LOG_DIR` on persistent storage if file logs are required; otherwise rely on provider logs.
+- Remember backend limits: ~1 MB JSON bodies, 2 MB SkillDB Markdown files, and 10 MB update/resource uploads.
 - Rotate Brevo and Firebase service account credentials if they were shared outside the deployment team.
 - Keep `deployment-guide.md` updated with provider-specific final decisions.

@@ -8,7 +8,7 @@ AI Unplugged uses:
 - Node backend in `backend/server.js`.
 - Postgres as the only application database, managed by Prisma.
 - Firebase only for authentication. Do not store app submissions in Firebase/Firestore.
-- Local filesystem uploads under `backend/uploads` unless you replace storage with a persistent volume or object storage later.
+- Uploads use `STORAGE_DRIVER=local` by default under `backend/uploads`. Production must either mount persistent storage for `UPLOAD_DIR` or set `STORAGE_DRIVER=s3` with S3/object-storage config.
 
 Homebrew Postgres is only for local development. Production needs a real Postgres service such as AWS RDS, Neon, Supabase Postgres, Railway Postgres, Render Postgres, or a managed Postgres attached to your server.
 
@@ -20,7 +20,9 @@ Use one of these:
 - Render/Railway/Fly for the Node web service, with their managed Postgres.
 - AWS ECS/Elastic Beanstalk/App Runner with RDS Postgres.
 
-Keep uploads persistent. On a VPS, mount/backup `backend/uploads`. On managed app platforms, configure a persistent disk or move uploads to object storage before production traffic.
+Keep uploads persistent. On a VPS, mount/backup `backend/uploads`. On managed app platforms, configure a persistent disk or enable S3/object storage before production traffic.
+
+Do not deploy `backend/functions` for production. It is a legacy Firebase Functions/Firestore implementation kept for reference; production uses `backend/server.js` with Postgres.
 
 ## Provider-Neutral Handoff
 
@@ -53,7 +55,14 @@ PORT=8000
 DATABASE_URL=postgresql://USER:PASSWORD@HOST:5432/DBNAME?sslmode=require
 FIREBASE_SERVICE_ACCOUNT_PATH=./serviceAccount.json
 PUBLIC_BASE_URL=https://your-domain.com
+STORAGE_DRIVER=local
 UPLOAD_DIR=./uploads
+# Optional if STORAGE_DRIVER=s3:
+# S3_BUCKET=your-bucket
+# S3_REGION=ap-south-1
+# S3_ACCESS_KEY_ID=...
+# S3_SECRET_ACCESS_KEY=...
+# S3_PUBLIC_BASE_URL=https://cdn.your-domain.com
 BREVO_API_KEY=...
 BREVO_SENDER_EMAIL=...
 BREVO_SENDER_NAME=AI Unplugged
@@ -96,7 +105,7 @@ For Render, Railway, Fly, or similar:
 - Start the backend from `backend` using `npm start`.
 - Set all backend variables from `backend/.env.production.example` in the provider dashboard.
 - Set frontend build variables from `frontend/.env.production.example` before `npm run build`.
-- Configure persistent storage for `UPLOAD_DIR`, or move uploads to durable object storage before production traffic.
+- Configure persistent storage for `UPLOAD_DIR`, or set `STORAGE_DRIVER=s3` and configure durable object storage before production traffic.
 
 Generic command sequence:
 
@@ -158,6 +167,7 @@ curl https://your-domain.com/api/platform/health
 
 - Run `npx prisma migrate deploy` on every deployment.
 - Back up Postgres daily.
+- Back up `UPLOAD_DIR` if using local storage, or enable bucket lifecycle/versioning/backups if using S3.
 - Monitor the `AppErrorLog` admin section for backend issues.
 - Do not rely on local `brew services start postgresql@16` in production.
 
@@ -167,6 +177,16 @@ curl https://your-domain.com/api/platform/health
 - Admin setup diagnostics: Admin dashboard “Local backend setup”
 - Verify Firebase Admin status is `ready`.
 - Verify database errors are not appearing in Admin → Errors after deploy.
+- Verify the health response shows the expected storage driver and enabled production safeguards.
+
+## Production Safeguards
+
+- The backend applies basic security headers on API/static responses.
+- The backend applies in-memory rate limits to public submissions, comments, uploads, auth/profile routes, newsletters, exports, and admin mutations.
+- JSON API bodies are limited to roughly 1 MB.
+- SkillDB Markdown uploads are limited to 2 MB.
+- Update attachments and resource images are limited to 10 MB.
+- File logs are written under `LOG_DIR`; in production, prefer provider logs or mount `LOG_DIR` on persistent storage.
 
 ## Launch Checklist
 

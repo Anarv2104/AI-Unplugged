@@ -3,13 +3,13 @@
 The repo is split into a dedicated frontend and backend:
 
 - [frontend](./frontend): React + Vite app
-- [backend](./backend): Node server backed by **Postgres** (data) and the **local filesystem** (uploads). **Firebase is used only for authentication.**
+- [backend](./backend): Node server backed by **Postgres** (data) and local or optional S3 storage (uploads). **Firebase is used only for authentication.**
 
 ## Stack
 
 - Frontend: React 18 + Vite
 - Backend: Node.js HTTP server + Prisma + Postgres
-- File storage: local filesystem under `backend/uploads/`, served at `/uploads/...`
+- File storage: local filesystem under `backend/uploads/` by default, or optional S3 via `STORAGE_DRIVER=s3`
 - Auth: Firebase Authentication (ID token verified server-side via `firebase-admin`)
 
 ## Frontend (dev)
@@ -115,7 +115,7 @@ Front it with nginx/Caddy as a reverse proxy to `localhost:8000`.
 ## Database & uploads
 
 - All collections previously in Firestore now live as Postgres tables managed by Prisma. Schema: `backend/prisma/schema.prisma`.
-- Uploaded files (skill `.md` files, update attachments, resource images) live under `backend/uploads/` and are served by the backend at `GET /uploads/<path>`.
+- Uploaded files (skill `.md` files, update attachments, resource images) live under `backend/uploads/` by default and are served by the backend at `GET /uploads/<path>`. In production, use a persistent disk for `UPLOAD_DIR` or enable `STORAGE_DRIVER=s3`.
 - Firebase is **only** used to verify ID tokens (`firebase-admin` on the backend, `firebase/auth` on the frontend).
 
 ## Required env values

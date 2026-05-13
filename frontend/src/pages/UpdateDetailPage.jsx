@@ -195,7 +195,7 @@ export default function UpdateDetailPage() {
                 <label className="form-label" htmlFor="comment-body">Commenting as {user?.email}</label>
                 <textarea className="form-textarea" id="comment-body" value={comment} onChange={(event) => setComment(event.target.value)} />
               </div>
-              {error ? <div className="form-error" style={{ display: 'block' }}>{error}</div> : null}
+              {error ? <div className="form-status-message" role="alert">{error}</div> : null}
               {message ? <div className="auth-success">{message}</div> : null}
               <button type="submit" className="btn-primary">Post Comment</button>
             </form>

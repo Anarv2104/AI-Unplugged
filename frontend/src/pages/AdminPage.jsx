@@ -1148,7 +1148,7 @@ function selectResource(resource) {
             </button>
           </div>
           {message ? <div className="auth-success">{message}</div> : null}
-          {error ? <div className="form-error" style={{ display: 'block' }}>{error}</div> : null}
+          {error ? <div className="form-status-message" role="alert">{error}</div> : null}
           {publishSuccess ? (
             <div
               className="skilldb-modal-backdrop"
@@ -1336,7 +1336,7 @@ function selectResource(resource) {
                               <button type="button" className="btn-secondary" onClick={handleAddInvite}>Add Invite</button>
                               <label className="btn-secondary">
                                 Import CSV/XLSX
-                                <input type="file" accept=".csv,.xlsx,.xls" style={{ display: 'none' }} onChange={(e) => e.target.files?.[0] && handleInviteUpload(e.target.files[0])} />
+                                <input type="file" accept=".csv,.xlsx" style={{ display: 'none' }} onChange={(e) => e.target.files?.[0] && handleInviteUpload(e.target.files[0])} />
                               </label>
                               <button type="button" className="btn-primary" onClick={handleSendInvites}>Send Invite Emails</button>
                             </div>
@@ -2056,7 +2056,7 @@ function selectResource(resource) {
                 <div className="form-field"><label className="form-label">Plain text</label><textarea className="form-textarea" value={newsletterDraft.text} onChange={(e) => setNewsletterDraft((c) => ({ ...c, text: e.target.value }))} /></div>
                 <div className="form-field">
                   <label className="form-label">Recipient upload override</label>
-                  <input type="file" accept=".csv,.xlsx,.xls" onChange={(e) => e.target.files?.[0] && handleNewsletterRecipientsFile(e.target.files[0])} />
+                  <input type="file" accept=".csv,.xlsx" onChange={(e) => e.target.files?.[0] && handleNewsletterRecipientsFile(e.target.files[0])} />
                   {newsletterRecipientsUpload ? <p className="page-sub">Using uploaded audience: {newsletterRecipientsUpload.filename}</p> : null}
                 </div>
                 <button type="submit" className="btn-primary" disabled={isSaving}>{isSaving ? 'Sending...' : 'Send Newsletter'}</button>

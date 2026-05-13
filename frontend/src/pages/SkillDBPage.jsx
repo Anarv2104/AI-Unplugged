@@ -317,7 +317,7 @@ export default function SkillDBPage() {
           </div>
 
           {message ? <div className="form-success">{message}</div> : null}
-          {error ? <div className="form-error">{error}</div> : null}
+          {error ? <div className="form-status-message" role="alert">{error}</div> : null}
 
           <div className="skilldb-content-grid">
             <div className="skilldb-main">
