@@ -6,7 +6,8 @@
     "functions:install": "npm --prefix functions install",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
-    "prisma:deploy": "prisma migrate deploy"
+    "prisma:deploy": "prisma migrate deploy",
+    "slugs:repair": "node scripts/repair-slugs.js"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1045.0",

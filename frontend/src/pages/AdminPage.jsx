@@ -4,6 +4,7 @@ import RichTextEditor from '../components/RichTextEditor';
 import { useAuth } from '../context/useAuth';
 import { formatEventStatusLabel, resolveHomeSpotlightEvents, sortEventsByState } from '../lib/events';
 import { defaultEventFormSchema, defaultNodeLeadFormSchema, FIELD_TYPES, UPDATE_CATEGORIES } from '../lib/defaultContent';
+import { buildResourcePath, buildUpdatePath } from '../lib/routes';
 import {
   deleteDocument,
   exportDatasetForEvent,
@@ -929,7 +930,7 @@ function selectResource(resource) {
           title: 'Update published successfully',
           message: `"${updateDraft.title || 'Untitled update'}" is now live.`,
           viewLabel: 'View on updates page',
-          viewUrl: `/updates/${slug}`,
+          viewUrl: buildUpdatePath(slug),
           detailUrl: ''
         });
       }
@@ -976,7 +977,7 @@ function selectResource(resource) {
           message: `"${resourceDraft.title || 'Untitled resource'}" is now live.`,
           viewLabel: 'View on resources page',
           viewUrl: `/resources`,
-          detailUrl: slug ? `/resources/${slug}` : ''
+          detailUrl: buildResourcePath(slug)
         });
       }
       refreshAll();

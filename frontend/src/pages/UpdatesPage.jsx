@@ -4,6 +4,7 @@ import PageHeader from '../components/PageHeader';
 import { useAuth } from '../context/useAuth';
 import { UPDATE_CATEGORIES } from '../lib/defaultContent';
 import { getUpdates } from '../lib/platform';
+import { buildUpdatePath } from '../lib/routes';
 
 function getEmptyUpdateCopy(activeCategory) {
   if (activeCategory === 'all') {
@@ -41,14 +42,19 @@ export default function UpdatesPage() {
   const emptyCopy = getEmptyUpdateCopy(activeCategory);
 
   function openUpdate(slug) {
+    const updatePath = buildUpdatePath(slug);
+    if (updatePath === '/updates') {
+      navigate('/updates');
+      return;
+    }
     if (isAuthenticated) {
-      navigate(`/updates/${slug}`);
+      navigate(updatePath);
       return;
     }
     navigate('/login', {
       state: {
         backgroundLocation: location,
-        nextPath: `/updates/${slug}`
+        nextPath: updatePath
       }
     });
   }

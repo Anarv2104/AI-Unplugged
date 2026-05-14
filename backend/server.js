@@ -354,6 +354,24 @@ function sendFile(res, filePath, extraHeaders = {}) {
   });
 }
 
+function getStaticCacheHeaders(filePath, urlPath = '') {
+  const basename = path.basename(filePath);
+  if (basename === 'index.html') {
+    return { 'Cache-Control': 'no-cache, no-store, must-revalidate' };
+  }
+
+  const isHashedAsset = urlPath.startsWith('/assets/') && /-[A-Za-z0-9_-]{8,}\./.test(basename);
+  if (isHashedAsset) {
+    return { 'Cache-Control': 'public, max-age=31536000, immutable' };
+  }
+
+  if (basename === 'robots.txt' || basename === 'sitemap.xml') {
+    return { 'Cache-Control': 'public, max-age=3600' };
+  }
+
+  return { 'Cache-Control': 'no-cache' };
+}
+
 const ALLOWED_ATTACHMENT_MIME = new Set([
   'image/png', 'image/jpeg', 'image/webp', 'image/gif',
   'application/pdf', 'text/plain', 'text/markdown'
@@ -385,7 +403,24 @@ function slugify(value) {
     .trim()
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, '-')
+    .replace(/-+/g, '-')
     .replace(/^-+|-+$/g, '');
+}
+
+function normalizeUpdateResponse(update) {
+  if (!update) return null;
+  return {
+    ...update,
+    slug: slugify(update.slug || update.title || update.id || 'update')
+  };
+}
+
+function normalizeResourceResponse(resource) {
+  if (!resource) return null;
+  return {
+    ...resource,
+    slug: slugify(resource.slug || resource.title || resource.id || 'resource')
+  };
 }
 
 function escapeHtml(value) {
@@ -2061,7 +2096,7 @@ async function handleSaveUpdate(req, res) {
     }
   }
 
-  sendJson(res, 200, { ok: true, id: saved.id });
+  sendJson(res, 200, { ok: true, id: saved.id, update: normalizeUpdateResponse(saved) });
 }
 
 async function handleDeleteUpdate(req, res, updateId) {
@@ -2145,18 +2180,33 @@ async function handleListUpdates(req, res, url) {
   const slug = url.searchParams.get('slug');
   if (slug) where = { ...where, slug };
   const updates = await prisma.update.findMany({ where, orderBy: { publishedAt: 'desc' } });
-  sendJson(res, 200, { ok: true, updates });
+  sendJson(res, 200, { ok: true, updates: updates.map(normalizeUpdateResponse) });
+}
+
+async function findUpdateBySafeSlug(slug) {
+  const safeSlug = slugify(slug);
+  if (!safeSlug) return null;
+
+  const exact = await prisma.update.findUnique({ where: { slug: safeSlug } });
+  if (exact) return exact;
+
+  const candidates = await prisma.update.findMany({ orderBy: { updatedAt: 'desc' } });
+  const matches = candidates.filter((item) => slugify(item.slug) === safeSlug);
+  if (matches.length > 1) {
+    throw new HttpError(409, 'Multiple updates match this route. Ask an admin to repair duplicate slugs.');
+  }
+  return matches[0] || null;
 }
 
 async function handleGetUpdate(req, res, slug) {
-  const update = await prisma.update.findUnique({ where: { slug } });
+  const update = await findUpdateBySafeSlug(slug);
   if (!update) throw new HttpError(404, 'Update not found.');
   if (update.publishState !== 'published') {
     const auth = await getAuthContext(req, { optional: true });
     const isAdmin = auth ? await isAdminUid(auth.uid) : false;
     if (!isAdmin) throw new HttpError(404, 'Update not found.');
   }
-  sendJson(res, 200, { ok: true, update });
+  sendJson(res, 200, { ok: true, update: normalizeUpdateResponse(update) });
 }
 
 async function handleListResources(req, res, url) {
@@ -2169,18 +2219,33 @@ async function handleListResources(req, res, url) {
   const slug = url.searchParams.get('slug');
   if (slug) where = { ...where, slug };
   const resources = await prisma.resource.findMany({ where, orderBy: { updatedAt: 'desc' } });
-  sendJson(res, 200, { ok: true, resources });
+  sendJson(res, 200, { ok: true, resources: resources.map(normalizeResourceResponse) });
+}
+
+async function findResourceBySafeSlug(slug) {
+  const safeSlug = slugify(slug);
+  if (!safeSlug) return null;
+
+  const exact = await prisma.resource.findUnique({ where: { slug: safeSlug } });
+  if (exact) return exact;
+
+  const candidates = await prisma.resource.findMany({ orderBy: { updatedAt: 'desc' } });
+  const matches = candidates.filter((item) => slugify(item.slug) === safeSlug);
+  if (matches.length > 1) {
+    throw new HttpError(409, 'Multiple resources match this route. Ask an admin to repair duplicate slugs.');
+  }
+  return matches[0] || null;
 }
 
 async function handleGetResource(req, res, slug) {
-  const resource = await prisma.resource.findUnique({ where: { slug } });
+  const resource = await findResourceBySafeSlug(slug);
   if (!resource) throw new HttpError(404, 'Resource not found.');
   if (resource.publishState !== 'published') {
     const auth = await getAuthContext(req, { optional: true });
     const isAdmin = auth ? await isAdminUid(auth.uid) : false;
     if (!isAdmin) throw new HttpError(404, 'Resource not found.');
   }
-  sendJson(res, 200, { ok: true, resource });
+  sendJson(res, 200, { ok: true, resource: normalizeResourceResponse(resource) });
 }
 
 async function handleSaveResource(req, res) {
@@ -2212,7 +2277,7 @@ async function handleSaveResource(req, res) {
   } else {
     saved = await prisma.resource.create({ data });
   }
-  sendJson(res, 200, { ok: true, id: saved.id, resource: saved });
+  sendJson(res, 200, { ok: true, id: saved.id, resource: normalizeResourceResponse(saved) });
 }
 
 async function handleDeleteResource(req, res, resourceId) {
@@ -2768,13 +2833,13 @@ const server = http.createServer(async (req, res) => {
 
   fs.stat(filePath, (err, stats) => {
     if (!err && stats.isFile()) {
-      sendFile(res, filePath);
+      sendFile(res, filePath, getStaticCacheHeaders(filePath, url.pathname));
       return;
     }
 
     const fallback = path.join(STATIC_ROOT, 'index.html');
     if (HAS_DIST && (url.pathname === '/' || path.extname(url.pathname) === '')) {
-      sendFile(res, fallback);
+      sendFile(res, fallback, getStaticCacheHeaders(fallback, '/index.html'));
       return;
     }
 

@@ -5,6 +5,7 @@ import { fallbackUpdates } from '../lib/defaultContent';
 import { useAuth } from '../context/useAuth';
 import { getHomeSpotlightSettings, getPublishedEvents } from '../lib/platform';
 import { resolveHomeSpotlightEvents } from '../lib/events';
+import { buildUpdatePath } from '../lib/routes';
 import SEO from '../components/SEO';
 
 export default function HomePage() {
@@ -41,11 +42,16 @@ export default function HomePage() {
   }
 
   function openUpdatePreview(slug) {
-    if (isAuthenticated) {
-      navigate(`/updates/${slug}`);
+    const updatePath = buildUpdatePath(slug);
+    if (updatePath === '/updates') {
+      navigate('/updates');
       return;
     }
-    navigate('/login', { state: { backgroundLocation: location, nextPath: `/updates/${slug}` } });
+    if (isAuthenticated) {
+      navigate(updatePath);
+      return;
+    }
+    navigate('/login', { state: { backgroundLocation: location, nextPath: updatePath } });
   }
 
   const homeSchemas = [

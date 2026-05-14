@@ -5,6 +5,7 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
+    "build:report": "npm run build && node scripts/report-build-size.mjs",
     "preview": "vite preview"
   },
   "dependencies": {

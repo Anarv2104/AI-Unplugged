@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react';
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
 import { useAuth } from '../context/useAuth';
 import { getCommentsForUpdate, getUpdateBySlug, submitUpdateComment } from '../lib/platform';
+import { buildUpdatePath } from '../lib/routes';
 import SEO from '../components/SEO';
 
 function AttachmentItem({ att }) {
@@ -99,7 +100,7 @@ export default function UpdateDetailPage() {
     );
   }
 
-  const updatePath = `/updates/${slug}`;
+  const updatePath = buildUpdatePath(update.slug || slug);
   const updateSchemas = [
     {
       '@type': 'Article',

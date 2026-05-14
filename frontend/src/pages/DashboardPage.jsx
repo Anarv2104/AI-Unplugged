@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../context/useAuth';
 import { getMemberDashboard } from '../lib/platform';
+import { buildUpdatePath } from '../lib/routes';
 import SEO from '../components/SEO';
 
 const UPDATE_KIND_LABELS = {
@@ -19,7 +20,7 @@ function humanizeUpdateKind(item) {
 
 function FeedItem({ item, emphasis = 'default' }) {
   return (
-    <Link className={`dashboard-feed-item${emphasis === 'highlight' ? ' is-highlight' : ''}`} to={`/updates/${item.slug}`}>
+    <Link className={`dashboard-feed-item${emphasis === 'highlight' ? ' is-highlight' : ''}`} to={buildUpdatePath(item.slug)}>
       <div className="dashboard-feed-copy">
         <span className="dashboard-feed-kicker">{humanizeUpdateKind(item)}</span>
         <strong>{item.title}</strong>

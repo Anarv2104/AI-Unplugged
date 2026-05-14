@@ -95,6 +95,14 @@ npm start
 
 The backend serves both `/api/*` and the built frontend from `frontend/dist`.
 
+## Performance And Caching
+
+- The backend sends long-lived immutable cache headers for hashed Vite assets under `/assets/*`.
+- The backend keeps `index.html` uncached so new deploys are picked up safely.
+- Enable gzip or Brotli compression at nginx/Caddy/provider level for HTML, CSS, JS, SVG, and JSON responses.
+- Use `npm run build:report` in `frontend` to print raw and gzip asset sizes after a production build.
+- Do not cache admin APIs or submission APIs at the CDN/reverse-proxy layer.
+
 ## Managed App Hosts
 
 For Render, Railway, Fly, or similar:

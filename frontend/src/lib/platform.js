@@ -8,6 +8,7 @@ import {
   fallbackUpdates
 } from './defaultContent';
 import { normalizeEventRecord } from './events';
+import { normalizeRouteSlug } from './routes';
 
 function sortByDateDesc(items, key = 'publishedAt') {
   function toMillis(value) {
@@ -24,10 +25,20 @@ function normalizeEventDocuments(items) {
 }
 
 function slugify(value) {
-  return String(value || '')
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '');
+  return normalizeRouteSlug(value);
+}
+
+function normalizeUpdateRecord(update) {
+  if (!update) return null;
+  return {
+    ...update,
+    title: typeof update.title === 'string' ? update.title : 'Untitled Update',
+    slug: normalizeRouteSlug(update.slug || update.title || update.id || 'update'),
+    excerpt: typeof update.excerpt === 'string' ? update.excerpt : '',
+    category: typeof update.category === 'string' ? update.category : 'update',
+    commentMode: typeof update.commentMode === 'string' ? update.commentMode : 'moderated',
+    publishState: typeof update.publishState === 'string' ? update.publishState : 'draft'
+  };
 }
 
 function normalizeResourceRecord(resource) {
@@ -219,21 +230,24 @@ export async function saveFormSchema(schema) {
 export async function getUpdates() {
   const result = await apiRequest('/api/platform/updates').catch(() => ({ updates: [] }));
   if (!result.updates?.length) return sortByDateDesc(fallbackUpdates);
-  return sortByDateDesc(result.updates);
+  return sortByDateDesc((result.updates || []).map(normalizeUpdateRecord).filter(Boolean));
 }
 
 export async function getAdminUpdates() {
   const result = await apiRequest('/api/platform/updates?admin=1', { requireAuth: true });
-  return sortByDateDesc(result.updates || []);
+  return sortByDateDesc((result.updates || []).map(normalizeUpdateRecord).filter(Boolean));
 }
 
 export async function getUpdateBySlug(slug) {
   if (!slug) return null;
   try {
-    const result = await apiRequest(`/api/platform/updates/${encodeURIComponent(slug)}`);
-    return result.update || null;
+    const safeSlug = normalizeRouteSlug(slug);
+    if (!safeSlug) return null;
+    const result = await apiRequest(`/api/platform/updates/${encodeURIComponent(safeSlug)}`);
+    return normalizeUpdateRecord(result.update);
   } catch (error) {
-    return fallbackUpdates.find((item) => item.slug === slug) || null;
+    const safeSlug = normalizeRouteSlug(slug);
+    return fallbackUpdates.map(normalizeUpdateRecord).find((item) => item.slug === safeSlug) || null;
   }
 }
 
@@ -255,10 +269,13 @@ export async function getAdminResources() {
 export async function getResourceBySlug(slug) {
   if (!slug) return null;
   try {
-    const result = await apiRequest(`/api/platform/resources/${encodeURIComponent(slug)}`);
+    const safeSlug = normalizeRouteSlug(slug);
+    if (!safeSlug) return null;
+    const result = await apiRequest(`/api/platform/resources/${encodeURIComponent(safeSlug)}`);
     return normalizeResourceRecord(result.resource);
   } catch (error) {
-    return fallbackResources.map(normalizeResourceRecord).find((item) => item?.slug === slug) || null;
+    const safeSlug = normalizeRouteSlug(slug);
+    return fallbackResources.map(normalizeResourceRecord).find((item) => item?.slug === safeSlug) || null;
   }
 }
 

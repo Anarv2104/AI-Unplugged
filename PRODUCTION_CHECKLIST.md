@@ -48,6 +48,7 @@ From repo root:
 cd frontend
 npm ci
 npm run build
+npm run build:report
 
 cd ../backend
 npm ci
@@ -69,6 +70,7 @@ VPS/EC2:
 - Use systemd or a process manager.
 - Put nginx/Caddy in front of `localhost:8000`.
 - Enable HTTPS.
+- Enable gzip/Brotli compression for text assets at nginx/Caddy or the hosting provider.
 - Keep `backend/uploads` on persistent disk, or use `STORAGE_DRIVER=s3`.
 
 ## 5. Verify Health
@@ -77,6 +79,7 @@ VPS/EC2:
 - Confirm response has `"ok": true`.
 - Confirm response capabilities show the expected `storageDriver`.
 - Confirm response capabilities show rate limiting/security headers enabled.
+- Confirm hashed frontend assets under `/assets/*` return long-lived cache headers and `index.html` is not cached.
 - Log in with a bootstrap admin email.
 - Open Admin dashboard.
 - Confirm Firebase Admin status is `ready`.
